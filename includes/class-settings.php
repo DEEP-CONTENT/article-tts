@@ -27,6 +27,17 @@ class Article_TTS_Settings {
 		add_action( 'admin_menu', array( $this, 'add_menu' ) );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
+		add_filter( 'plugin_action_links_' . plugin_basename( ARTICLE_TTS_FILE ), array( $this, 'add_action_links' ) );
+	}
+
+	public function add_action_links( $links ) {
+		$settings_link = sprintf(
+			'<a href="%s">%s</a>',
+			esc_url( admin_url( 'options-general.php?page=' . self::PAGE_SLUG ) ),
+			esc_html__( 'Einstellungen', 'article-tts' )
+		);
+		array_unshift( $links, $settings_link );
+		return $links;
 	}
 
 	public function add_menu() {
