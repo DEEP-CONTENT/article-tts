@@ -39,6 +39,9 @@ class Article_TTS_Player {
 		if ( ! get_post_meta( get_the_ID(), Article_TTS_Generator::META_URL, true ) ) {
 			return;
 		}
+		if ( ! self::current_user_can_see_player( $options ) ) {
+			return;
+		}
 		wp_enqueue_style(
 			'article-tts-frontend',
 			ARTICLE_TTS_URL . 'assets/css/frontend.css',
@@ -67,6 +70,9 @@ class Article_TTS_Player {
 			return $content;
 		}
 		if ( ! in_array( get_post_type(), (array) $options['enabled_post_types'], true ) ) {
+			return $content;
+		}
+		if ( ! self::current_user_can_see_player( $options ) ) {
 			return $content;
 		}
 		$post_id = get_the_ID();
@@ -106,7 +112,36 @@ class Article_TTS_Player {
 			return '';
 		}
 		$this->shortcode_used = true;
+		if ( ! self::current_user_can_see_player( Article_TTS_Plugin::get_options() ) ) {
+			return '';
+		}
 		return $this->render_player( $url );
+	}
+
+	/**
+	 * Decide whether the current visitor may see the player.
+	 *
+	 * Empty visibility_roles means "everyone" (backward-compatible default).
+	 * The pseudo-role "guest" matches non-logged-in visitors.
+	 */
+	public static function current_user_can_see_player( $options ) {
+		$allowed = isset( $options['visibility_roles'] ) ? (array) $options['visibility_roles'] : array();
+		if ( empty( $allowed ) ) {
+			return true;
+		}
+		if ( ! is_user_logged_in() ) {
+			return in_array( 'guest', $allowed, true );
+		}
+		$user = wp_get_current_user();
+		if ( ! $user || empty( $user->roles ) ) {
+			return false;
+		}
+		foreach ( (array) $user->roles as $role ) {
+			if ( in_array( $role, $allowed, true ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private function render_player( $url ) {

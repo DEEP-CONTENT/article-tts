@@ -4,7 +4,7 @@ Tags: tts, audio, text-to-speech, audio-articles
 Requires at least: 6.0
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 1.0.1
+Stable tag: 1.0.2
 License: GPLv2 or later
 
 Wandelt WordPress-Artikel über eine Text-to-Speech API in Audio um und zeigt einen HTML5-Player im Frontend.
@@ -38,6 +38,9 @@ Features:
 * Details zum verwendeten TTS-Anbieter siehe Code-Kommentare in `includes/class-api.php`.
 
 == Changelog ==
+
+= 1.0.2 =
+* Neues Setting "Sichtbar für": Player kann auf bestimmte Rollen (inkl. Gäste) beschränkt werden. Leer = alle Besucher (Standard).
 
 = 1.0.1 =
 * Doku: provider-neutrale Formulierung in README.

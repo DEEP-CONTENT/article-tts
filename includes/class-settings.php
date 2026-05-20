@@ -148,6 +148,14 @@ class Article_TTS_Settings {
 			'article_tts_behaviour'
 		);
 
+		add_settings_field(
+			'visibility_roles',
+			__( 'Sichtbar für', 'article-tts' ),
+			array( $this, 'field_visibility_roles' ),
+			self::PAGE_SLUG,
+			'article_tts_behaviour'
+		);
+
 		add_settings_section(
 			'article_tts_appearance',
 			__( 'Erscheinungsbild', 'article-tts' ),
@@ -219,6 +227,18 @@ class Article_TTS_Settings {
 		$out['include_title']   = ! empty( $input['include_title'] ) ? 1 : 0;
 		$out['include_excerpt'] = ! empty( $input['include_excerpt'] ) ? 1 : 0;
 		$out['player_label']    = isset( $input['player_label'] ) ? sanitize_text_field( $input['player_label'] ) : '';
+
+		$out['visibility_roles'] = array();
+		if ( isset( $input['visibility_roles'] ) && is_array( $input['visibility_roles'] ) ) {
+			$valid_roles    = array_keys( wp_roles()->roles );
+			$valid_roles[]  = 'guest';
+			foreach ( $input['visibility_roles'] as $role ) {
+				$role = sanitize_key( $role );
+				if ( in_array( $role, $valid_roles, true ) ) {
+					$out['visibility_roles'][] = $role;
+				}
+			}
+		}
 
 		$css = isset( $input['custom_css'] ) ? (string) $input['custom_css'] : '';
 		// Defuse closing style tags so the inline-style block can't be broken out of.
@@ -328,6 +348,31 @@ class Article_TTS_Settings {
 			esc_textarea( $value )
 		);
 		echo '<p class="description">' . esc_html__( 'Leer lassen, um die Standard-Darstellung zu nutzen.', 'article-tts' ) . '</p>';
+	}
+
+	public function field_visibility_roles() {
+		$options = Article_TTS_Plugin::get_options();
+		$enabled = isset( $options['visibility_roles'] ) ? (array) $options['visibility_roles'] : array();
+		$roles   = wp_roles()->roles;
+
+		printf(
+			'<label style="display:block;margin-bottom:4px;"><input type="checkbox" name="%1$s[visibility_roles][]" value="guest" %2$s /> %3$s</label>',
+			esc_attr( ARTICLE_TTS_OPTION_KEY ),
+			checked( in_array( 'guest', $enabled, true ), true, false ),
+			esc_html__( 'Gäste (nicht eingeloggt)', 'article-tts' )
+		);
+
+		foreach ( $roles as $slug => $role ) {
+			printf(
+				'<label style="display:block;margin-bottom:4px;"><input type="checkbox" name="%1$s[visibility_roles][]" value="%2$s" %3$s /> %4$s <code>%2$s</code></label>',
+				esc_attr( ARTICLE_TTS_OPTION_KEY ),
+				esc_attr( $slug ),
+				checked( in_array( $slug, $enabled, true ), true, false ),
+				esc_html( translate_user_role( $role['name'] ) )
+			);
+		}
+
+		echo '<p class="description">' . esc_html__( 'Wenn nichts ausgewählt ist, sehen alle Besucher den Player (Standard). Sobald mindestens eine Auswahl gesetzt ist, wird der Player nur für die ausgewählten Gruppen ausgespielt.', 'article-tts' ) . '</p>';
 	}
 
 	public function field_include_parts() {
