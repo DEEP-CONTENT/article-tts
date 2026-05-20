@@ -11,6 +11,7 @@ Eigenständiges WordPress-Plugin, das Artikel-Inhalt (Titel + Excerpt + Body) ü
 - Frontend-Player über `the_content` Filter (Position konfigurierbar: oben/unten/beides/manuell)
 - Shortcode `[article_audio]` für manuelle Platzierung im Block-Editor
 - Funktioniert mit jedem Post-Type (Standard: `post`, weitere in den Settings aktivierbar)
+- Sichtbarkeit des Players pro Rolle steuerbar (inkl. Gäste); leer = alle Besucher
 - Nutzt ausschließlich WordPress-Core-APIs — keine Theme-Abhängigkeit
 
 ## Installation
@@ -64,6 +65,7 @@ composer install   # installiert plugin-update-checker (require-dev)
 
 - Audio-Dateien werden unter `wp-content/uploads/article-tts/` gespeichert (öffentlich abrufbar, nicht in der Mediathek).
 - API-Aufruf in `includes/class-api.php`.
+- Die Rollen-Sichtbarkeit (**Einstellungen → Sichtbar für**) unterdrückt nur Rendering und Asset-Loading des Players — die MP3-Datei selbst bleibt unter ihrer öffentlichen URL erreichbar, wenn sie bekannt ist.
 
 ## Lizenz
 
