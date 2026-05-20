@@ -1,0 +1,58 @@
+.article-tts-metabox audio {
+	margin: 8px 0;
+}
+
+.article-tts-metabox select,
+.article-tts-metabox input[type="text"] {
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
+}
+
+.article-tts-metabox .article-tts-status {
+	margin: 6px 0 10px;
+	line-height: 1.4;
+}
+
+.article-tts-metabox .article-tts-warning {
+	background: #fff3cd;
+	border-left: 3px solid #f0b849;
+	padding: 8px 10px;
+	margin: 0 0 10px;
+}
+
+.article-tts-metabox .article-tts-stale {
+	color: #b65414;
+	font-weight: 600;
+}
+
+.article-tts-metabox .article-tts-actions {
+	margin: 10px 0 4px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.article-tts-metabox .article-tts-feedback {
+	min-height: 1.4em;
+	font-size: 12px;
+}
+
+.article-tts-metabox .article-tts-feedback.article-tts-error {
+	color: #b32d2e;
+}
+
+.article-tts-metabox .article-tts-feedback.article-tts-success {
+	color: #006908;
+}
+
+.article-tts-settings table.widefat td {
+	vertical-align: middle;
+}
+
+/* Im Sidebar-Kontext nur Ein-/Ausklappen erlauben — Move-Pfeile ausblenden. */
+#side-sortables #article-tts-metabox .handle-actions .handle-order-higher,
+#side-sortables #article-tts-metabox .handle-actions .handle-order-lower {
+	display: none !important;
+}

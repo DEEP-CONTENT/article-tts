@@ -1,0 +1,8 @@
+# vendor/ wird committed, damit das Plugin auch ohne Composer-Setup
+# (manueller WP-Upload, GitHub-Release-Install) lauffähig ist.
+/node_modules/
+.DS_Store
+*.log
+.idea/
+.vscode/
+composer.lock

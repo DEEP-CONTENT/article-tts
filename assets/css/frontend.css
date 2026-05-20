@@ -1,0 +1,110 @@
+.article-tts-player {
+	margin: 1.5em 0;
+	padding: 6px 10px;
+	border: 1px solid rgba(0, 0, 0, 0.08);
+	border-radius: 8px;
+	background: rgba(0, 0, 0, 0.02);
+}
+
+.article-tts-player .article-tts-player__label {
+	display: block;
+	font-size: 0.75em;
+	font-weight: 600;
+	margin: 0;
+	padding-left: 12px;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+	opacity: 0.75;
+}
+
+.article-tts-player audio {
+	display: none;
+}
+
+.article-tts-player__controls {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin-top: 4px;
+	padding: 0 4px;
+}
+
+.article-tts-player__play {
+	flex: 0 0 auto;
+	width: 24px;
+	height: 24px;
+	border: none;
+	background: transparent;
+	color: inherit;
+	cursor: pointer;
+	padding: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	opacity: 0.7;
+	transition: opacity 0.15s ease;
+}
+
+.article-tts-player__play:hover,
+.article-tts-player__play:focus-visible {
+	opacity: 1;
+}
+
+.article-tts-player__play:focus-visible {
+	outline: 2px solid currentColor;
+	outline-offset: 2px;
+	border-radius: 4px;
+}
+
+.article-tts-player__icon {
+	width: 18px;
+	height: 18px;
+	fill: currentColor;
+	display: block;
+}
+
+.article-tts-player__icon--pause {
+	display: none;
+}
+
+.article-tts-player.is-playing .article-tts-player__icon--play {
+	display: none;
+}
+
+.article-tts-player.is-playing .article-tts-player__icon--pause {
+	display: block;
+}
+
+.article-tts-player__progress {
+	flex: 1 1 auto;
+	height: 4px;
+	background: currentColor;
+	background: rgba(0, 0, 0, 0.1);
+	border-radius: 2px;
+	cursor: pointer;
+	overflow: hidden;
+	position: relative;
+}
+
+.article-tts-player__progress:focus-visible {
+	outline: 2px solid currentColor;
+	outline-offset: 3px;
+}
+
+.article-tts-player__progress-fill {
+	height: 100%;
+	width: 0;
+	background: currentColor;
+	opacity: 0.55;
+	border-radius: 2px;
+	transition: width 0.1s linear;
+}
+
+.article-tts-player__time {
+	flex: 0 0 auto;
+	font-size: 0.8em;
+	font-variant-numeric: tabular-nums;
+	opacity: 0.6;
+	min-width: 5em;
+	text-align: right;
+}
