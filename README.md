@@ -1,6 +1,6 @@
 # Heise I/O Article TTS
 
-Eigenständiges WordPress-Plugin, das Artikel-Inhalt (Titel + Excerpt + Body) über die ElevenLabs Text-to-Speech API in eine MP3-Datei umwandelt und einen Audio-Player im Frontend ausspielt.
+Eigenständiges WordPress-Plugin, das Artikel-Inhalt (Titel + Excerpt + Body) über eine Text-to-Speech API in eine MP3-Datei umwandelt und einen Audio-Player im Frontend ausspielt.
 
 ## Features
 
@@ -20,7 +20,7 @@ Eigenständiges WordPress-Plugin, das Artikel-Inhalt (Titel + Excerpt + Body) ü
 1. ZIP des aktuellen Releases von [GitHub Releases](https://github.com/DEEP-CONTENT/article-tts/releases) herunterladen.
 2. In WordPress unter **Plugins → Neues Plugin hinzufügen → Plugin hochladen** installieren.
 3. Aktivieren.
-4. Unter **Einstellungen → Heise I/O Article TTS** den ElevenLabs API-Key eintragen.
+4. Unter **Einstellungen → Heise I/O Article TTS** den API-Key eintragen.
 
 ### Option 2: Composer
 
@@ -63,7 +63,7 @@ composer install   # installiert plugin-update-checker (require-dev)
 ## Technische Hinweise
 
 - Audio-Dateien werden unter `wp-content/uploads/article-tts/` gespeichert (öffentlich abrufbar, nicht in der Mediathek).
-- TTS-Provider: **ElevenLabs**. API-Aufruf in `includes/class-api.php`.
+- API-Aufruf in `includes/class-api.php`.
 
 ## Lizenz
 
