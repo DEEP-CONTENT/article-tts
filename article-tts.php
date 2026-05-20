@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Heise I/O Article TTS
  * Description: Wandelt WordPress-Artikel über eine Text-to-Speech API in Audio um und zeigt einen HTML5-Player im Frontend.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: Deep Content by Heise
  * License: GPL v2 or later
  * Text Domain: article-tts
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'ARTICLE_TTS_VERSION', '1.0.0' );
+define( 'ARTICLE_TTS_VERSION', '1.0.1' );
 define( 'ARTICLE_TTS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'ARTICLE_TTS_URL', plugin_dir_url( __FILE__ ) );
 define( 'ARTICLE_TTS_OPTION_KEY', 'article_tts_options' );
