@@ -85,7 +85,7 @@ class Article_TTS_Metabox {
 
 	public function render( $post ) {
 		$options    = Article_TTS_Plugin::get_options();
-		$api_ready  = ! empty( $options['api_key'] );
+		$api_ready  = '' !== $options['api_base_url'] && '' !== $options['api_token'];
 		$generated  = (int) get_post_meta( $post->ID, Article_TTS_Generator::META_GENERATED, true );
 		$url        = get_post_meta( $post->ID, Article_TTS_Generator::META_URL, true );
 		$voice      = get_post_meta( $post->ID, Article_TTS_Generator::META_VOICE, true );
@@ -93,11 +93,9 @@ class Article_TTS_Metabox {
 		$size       = (int) get_post_meta( $post->ID, Article_TTS_Generator::META_SIZE, true );
 		$override   = get_post_meta( $post->ID, Article_TTS_Generator::META_OVERRIDE, true );
 		$resolved   = Article_TTS_Generator::resolve_voice_id( $post->ID, $options );
-		$current_hash = '';
-		if ( $generated ) {
-			$current_hash = md5( $resolved . '|' . $options['model_id'] . '|' . Article_TTS_Generator::build_text( $post, $options ) );
-		}
-		$stale = $generated && $hash && $current_hash && $hash !== $current_hash;
+		// The formula lives in ONE place now. It used to be repeated here, which
+		// is exactly how two copies of a hash drift apart.
+		$stale      = $generated && Article_TTS_Generator::is_stale( $post->ID, $post );
 
 		wp_nonce_field( 'article_tts_metabox', 'article_tts_metabox_nonce' );
 		?>

@@ -34,7 +34,8 @@ if ( file_exists( ARTICLE_TTS_PATH . 'vendor/autoload.php' ) ) {
 	}
 }
 
-require_once ARTICLE_TTS_PATH . 'includes/class-api.php';
+require_once ARTICLE_TTS_PATH . 'includes/class-client.php';
+require_once ARTICLE_TTS_PATH . 'includes/class-voices.php';
 require_once ARTICLE_TTS_PATH . 'includes/class-settings.php';
 require_once ARTICLE_TTS_PATH . 'includes/class-generator.php';
 require_once ARTICLE_TTS_PATH . 'includes/class-metabox.php';
@@ -70,10 +71,18 @@ class Article_TTS_Plugin {
 
 	public static function get_default_options() {
 		return array(
-			'api_key'           => '',
-			// Charlie (locker, Podcast/Conversational) — funktioniert mit eleven_multilingual_v2 auch auf DE.
-			'default_voice_id'  => 'IKne3meq5aSn9XLyUdCD',
-			'model_id'          => 'eleven_multilingual_v2',
+			// Address and token of the DC-IO instance. There is no sensible
+			// default: the address is the customer's own tenant domain, and
+			// tenancy is resolved from it — a wrong host means the token is
+			// looked up in a foreign database and simply is not found.
+			'api_base_url'      => '',
+			'api_token'         => '',
+			// Empty, not a curated id. Voices come from the connected instance
+			// now, and a hard-coded default would point at a voice the customer
+			// may not have.
+			'default_voice_id'  => '',
+			'model_id'          => '',
+			'language'          => 'de',
 			'enabled_post_types' => array( 'post' ),
 			'player_position'   => 'before',
 			'include_title'     => 1,
@@ -87,78 +96,29 @@ class Article_TTS_Plugin {
 	/**
 	 * Resolve a voice ID to a human-readable label.
 	 *
+	 * Delegates to the catalogue the connected instance reports; there is no
+	 * curated list in the plugin any more.
+	 *
 	 * @param string $voice_id Voice ID to look up.
-	 * @return string Voice name from the curated list, "Eigene Stimme" for
-	 *                anything not in the list, or a dash for empty input.
+	 * @return string
 	 */
 	public static function get_voice_label( $voice_id ) {
-		if ( '' === (string) $voice_id ) {
-			return '—';
-		}
-		foreach ( Article_TTS_API::get_recommended_voices() as $voice ) {
-			if ( $voice['id'] === $voice_id ) {
-				return $voice['name'];
-			}
-		}
-		return __( 'Eigene Stimme', 'article-tts' );
+		return Article_TTS_Voices::voice_label( $voice_id );
 	}
 
 	/**
 	 * Render the <option>/<optgroup> markup for a voice <select>.
 	 *
 	 * The caller is responsible for the surrounding <select name="…"> tag.
-	 * Only the curated/recommended voices are offered; any previously stored
-	 * value not in that list is shown as a "Manuell:" fallback so it is not
-	 * silently lost.
+	 * Delegates to the catalogue of the connected instance; a stored value the
+	 * catalogue no longer offers is kept rather than silently swapped for another
+	 * voice.
 	 *
 	 * @param string $selected    Currently selected voice ID.
 	 * @param string $empty_label Label for the first "no selection" option.
 	 */
 	public static function render_voice_options( $selected, $empty_label = '' ) {
-		if ( '' === $empty_label ) {
-			$empty_label = __( '— keine —', 'article-tts' );
-		}
-		printf(
-			'<option value="">%s</option>',
-			esc_html( $empty_label )
-		);
-
-		$recommended = Article_TTS_API::get_recommended_voices();
-		$labels      = Article_TTS_API::get_recommended_voice_group_labels();
-		$rec_ids     = wp_list_pluck( $recommended, 'id' );
-
-		$grouped = array();
-		foreach ( $recommended as $voice ) {
-			$grouped[ $voice['group'] ][] = $voice;
-		}
-
-		foreach ( $grouped as $group_key => $voices ) {
-			usort(
-				$voices,
-				static function ( $a, $b ) {
-					return strnatcasecmp( $a['name'], $b['name'] );
-				}
-			);
-			$label = isset( $labels[ $group_key ] ) ? $labels[ $group_key ] : $group_key;
-			printf( '<optgroup label="%s">', esc_attr( $label ) );
-			foreach ( $voices as $voice ) {
-				printf(
-					'<option value="%1$s" %2$s>%3$s</option>',
-					esc_attr( $voice['id'] ),
-					selected( $selected, $voice['id'], false ),
-					esc_html( $voice['name'] )
-				);
-			}
-			echo '</optgroup>';
-		}
-
-		if ( $selected && ! in_array( $selected, $rec_ids, true ) ) {
-			printf(
-				'<option value="%1$s" selected>%2$s</option>',
-				esc_attr( $selected ),
-				esc_html__( 'Eigene Stimme', 'article-tts' )
-			);
-		}
+		Article_TTS_Voices::render_options( $selected, $empty_label );
 	}
 
 	public static function activate() {

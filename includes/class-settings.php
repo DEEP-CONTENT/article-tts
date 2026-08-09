@@ -96,17 +96,25 @@ class Article_TTS_Settings {
 
 		add_settings_section(
 			'article_tts_api',
-			__( 'API-Zugang', 'article-tts' ),
+			__( 'Verbindung', 'article-tts' ),
 			function () {
-				echo '<p>' . esc_html__( 'Trage hier deinen API-Key ein.', 'article-tts' ) . '</p>';
+				echo '<p>' . esc_html__( 'Adresse und Zugangstoken der DC-IO-Instanz. Die Adresse muss die Domain sein, unter der euer Mandant erreichbar ist — an ihr wird der Zugang aufgelöst.', 'article-tts' ) . '</p>';
 			},
 			self::PAGE_SLUG
 		);
 
 		add_settings_field(
-			'api_key',
-			__( 'API Key', 'article-tts' ),
-			array( $this, 'field_api_key' ),
+			'api_base_url',
+			__( 'Adresse', 'article-tts' ),
+			array( $this, 'field_api_base_url' ),
+			self::PAGE_SLUG,
+			'article_tts_api'
+		);
+
+		add_settings_field(
+			'api_token',
+			__( 'Zugangstoken', 'article-tts' ),
+			array( $this, 'field_api_token' ),
 			self::PAGE_SLUG,
 			'article_tts_api'
 		);
@@ -212,10 +220,24 @@ class Article_TTS_Settings {
 			return $out;
 		}
 
-		$out['api_key']          = isset( $input['api_key'] ) ? sanitize_text_field( $input['api_key'] ) : '';
+		// esc_url_raw, nicht sanitize_text_field: die Adresse wird zur Basis jedes
+		// Requests, und ein Tippfehler mit Leerzeichen oder Pfad soll hier
+		// auffallen und nicht erst im Client.
+		$out['api_base_url'] = isset( $input['api_base_url'] )
+			? untrailingslashit( esc_url_raw( trim( (string) $input['api_base_url'] ) ) )
+			: '';
+		$out['api_token']    = isset( $input['api_token'] ) ? trim( sanitize_text_field( $input['api_token'] ) ) : '';
+
 		$out['default_voice_id'] = isset( $input['default_voice_id'] ) ? sanitize_text_field( $input['default_voice_id'] ) : '';
-		// Model ist nicht mehr UI-konfigurierbar — immer das empfohlene Default-Model erzwingen.
-		$out['model_id']         = 'eleven_multilingual_v2';
+		// Das Modell kommt jetzt aus dem Katalog der Instanz. Leer heisst: die
+		// Gegenseite entscheidet — das ist der sinnvolle Default, weil sie weiss,
+		// welche Modelle dort ueberhaupt aktiv sind.
+		$out['model_id'] = isset( $input['model_id'] ) ? sanitize_text_field( $input['model_id'] ) : '';
+		$out['language'] = isset( $input['language'] ) ? sanitize_text_field( $input['language'] ) : 'de';
+
+		// Der Katalog haengt an der Verbindung: aendert sie sich, ist der
+		// zwischengespeicherte Stand nicht mehr zustaendig.
+		Article_TTS_Voices::flush();
 
 		$out['enabled_post_types'] = array();
 		if ( isset( $input['enabled_post_types'] ) && is_array( $input['enabled_post_types'] ) ) {
@@ -277,13 +299,23 @@ class Article_TTS_Settings {
 		<?php
 	}
 
-	public function field_api_key() {
+	public function field_api_base_url() {
 		$options = Article_TTS_Plugin::get_options();
 		printf(
-			'<input type="password" autocomplete="new-password" name="%1$s[api_key]" value="%2$s" class="regular-text" />',
+			'<input type="url" name="%1$s[api_base_url]" value="%2$s" class="regular-text" placeholder="https://kunde.example.de" />',
 			esc_attr( ARTICLE_TTS_OPTION_KEY ),
-			esc_attr( $options['api_key'] )
+			esc_attr( $options['api_base_url'] )
 		);
+	}
+
+	public function field_api_token() {
+		$options = Article_TTS_Plugin::get_options();
+		printf(
+			'<input type="password" autocomplete="new-password" name="%1$s[api_token]" value="%2$s" class="regular-text" />',
+			esc_attr( ARTICLE_TTS_OPTION_KEY ),
+			esc_attr( $options['api_token'] )
+		);
+		echo '<p class="description">' . esc_html__( 'Wird von eurem DC-IO-Administrator ausgestellt.', 'article-tts' ) . '</p>';
 	}
 
 	public function field_default_voice() {

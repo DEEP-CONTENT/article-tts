@@ -46,20 +46,20 @@ class Article_TTS_Ajax {
 			}
 		}
 
-		$result = Article_TTS_Generator::generate( $post_id );
+		// Hands the article over and returns immediately. Synthesis now runs
+		// server-side and takes minutes for a long article; what used to be one
+		// blocking call is a submit plus a poll (added with the async UI).
+		$result = Article_TTS_Generator::submit( $post_id );
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( array( 'message' => $result->get_error_message() ), 500 );
 		}
 
 		wp_send_json_success(
 			array(
-				'url'           => $result['url'],
-				'voice'         => $result['voice'],
-				'generated'     => $result['generated'],
-				'generated_iso' => date_i18n( 'c', $result['generated'] ),
-				'size'          => $result['size'],
-				'size_human'    => size_format( $result['size'] ),
-				'skipped'       => ! empty( $result['skipped'] ),
+				'job_id'     => $result['job_id'],
+				'job_status' => $result['job_status'],
+				'chunks'     => $result['chunks'],
+				'replayed'   => $result['replayed'],
 			)
 		);
 	}
