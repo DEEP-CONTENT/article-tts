@@ -2,6 +2,24 @@
 (function ($) {
 	'use strict';
 
+	/**
+	 * Poll cadence.
+	 *
+	 * Tight at the start because a short article is done in seconds, then slower:
+	 * a long one takes minutes, and asking every five seconds for ten minutes is
+	 * a hundred and twenty requests for one article.
+	 */
+	var FIRST_INTERVAL = 5000;
+	var LATER_INTERVAL = 15000;
+	var SLOW_DOWN_AFTER = 60000;
+
+	/**
+	 * When the browser stops asking. NOT when the rendition stops: the cron keeps
+	 * going and the audio appears on the article either way. This only ends the
+	 * live display.
+	 */
+	var GIVE_UP_AFTER = 1200000;
+
 	function feedback($box, msg, isError) {
 		var $fb = $box.find('.article-tts-feedback');
 		$fb.text(msg);
@@ -15,6 +33,77 @@
 		}, ms || 800);
 	}
 
+	function progressText(data) {
+		if (data.total > 1 && data.done >= 0) {
+			return articleTTS.i18n.progress
+				.replace('%1$s', data.done)
+				.replace('%2$s', data.total);
+		}
+
+		return articleTTS.i18n.generating;
+	}
+
+	function poll($box, postId, startedAt) {
+		// A hidden tab gets no useful timers anyway and the work continues
+		// server-side; asking again when it comes back is enough.
+		if (document.hidden) {
+			setTimeout(function () {
+				poll($box, postId, startedAt);
+			}, LATER_INTERVAL);
+			return;
+		}
+
+		$.post(articleTTS.ajaxUrl, {
+			action: 'article_tts_status',
+			nonce: articleTTS.nonce,
+			post_id: postId
+		})
+			.done(function (res) {
+				if (!res || !res.success) {
+					feedback($box, articleTTS.i18n.failed, true);
+					$box.find('#article-tts-generate').prop('disabled', false);
+					return;
+				}
+
+				var data = res.data;
+
+				if (data.job_status === 'completed' && data.url) {
+					feedback($box, articleTTS.i18n.success, false);
+					reloadAfter(800);
+					return;
+				}
+
+				if (data.job_status === 'failed' || data.job_status === 'expired') {
+					feedback($box, articleTTS.i18n.failed + ': ' + (data.error || ''), true);
+					$box.find('#article-tts-generate').prop('disabled', false);
+					return;
+				}
+
+				var elapsed = Date.now() - startedAt;
+
+				if (elapsed > GIVE_UP_AFTER) {
+					// Deliberately not an error: nothing broke, we simply stop
+					// watching. Saying so is what keeps the editor from clicking
+					// again and paying for a second rendition.
+					feedback($box, articleTTS.i18n.background, false);
+					return;
+				}
+
+				feedback($box, progressText(data), false);
+
+				setTimeout(function () {
+					poll($box, postId, startedAt);
+				}, elapsed > SLOW_DOWN_AFTER ? LATER_INTERVAL : FIRST_INTERVAL);
+			})
+			.fail(function () {
+				// One failed poll is not a failed rendition — the connection may
+				// simply have hiccupped. Keep asking; the deadline ends it.
+				setTimeout(function () {
+					poll($box, postId, startedAt);
+				}, LATER_INTERVAL);
+			});
+	}
+
 	$(document).on('click', '#article-tts-generate', function (e) {
 		e.preventDefault();
 		var $box = $(this).closest('.article-tts-metabox');
@@ -23,7 +112,7 @@
 		var voiceOverride = $('#article-tts-voice-override').val() || '';
 
 		$btn.prop('disabled', true);
-		feedback($box, articleTTS.i18n.generating, false);
+		feedback($box, articleTTS.i18n.submitting, false);
 
 		$.post(articleTTS.ajaxUrl, {
 			action: 'article_tts_generate',
@@ -33,9 +122,8 @@
 		})
 			.done(function (res) {
 				if (res && res.success) {
-					var msg = res.data.skipped ? articleTTS.i18n.skipped : articleTTS.i18n.success;
-					feedback($box, msg, false);
-					reloadAfter(1200);
+					feedback($box, articleTTS.i18n.generating, false);
+					poll($box, postId, Date.now());
 				} else {
 					var m = (res && res.data && res.data.message) ? res.data.message : articleTTS.i18n.failed;
 					feedback($box, articleTTS.i18n.failed + ': ' + m, true);
@@ -47,6 +135,15 @@
 				feedback($box, articleTTS.i18n.failed + ': ' + m, true);
 				$btn.prop('disabled', false);
 			});
+	});
+
+	// A rendition that was already running when the editor was opened: pick the
+	// display back up rather than showing a stale "queued" until the next reload.
+	$(function () {
+		$('.article-tts-metabox[data-job-pending="1"]').each(function () {
+			var $box = $(this);
+			poll($box, $box.data('post-id'), Date.now());
+		});
 	});
 
 	$(document).on('click', '#article-tts-delete', function (e) {

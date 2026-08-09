@@ -73,11 +73,14 @@ class Article_TTS_Metabox {
 				'nonce'   => wp_create_nonce( 'article_tts_nonce' ),
 				'i18n'    => array(
 					'confirmDelete' => __( 'Audio-Datei dauerhaft löschen?', 'article-tts' ),
-					'generating'    => __( 'Generiere Audio…', 'article-tts' ),
+					'submitting'    => __( 'Übergebe Artikel…', 'article-tts' ),
+					'generating'    => __( 'Vertonung läuft…', 'article-tts' ),
+					/* translators: 1: finished sections, 2: total sections */
+					'progress'      => __( 'Abschnitt %1$s von %2$s', 'article-tts' ),
+					'background'    => __( 'Die Vertonung läuft im Hintergrund weiter. Das Audio erscheint automatisch, sobald es fertig ist.', 'article-tts' ),
 					'deleting'      => __( 'Lösche…', 'article-tts' ),
 					'failed'        => __( 'Fehler', 'article-tts' ),
 					'success'       => __( 'Erfolgreich.', 'article-tts' ),
-					'skipped'       => __( 'Audio ist bereits aktuell — keine neue API-Anfrage.', 'article-tts' ),
 				),
 			)
 		);
@@ -97,9 +100,14 @@ class Article_TTS_Metabox {
 		// is exactly how two copies of a hash drift apart.
 		$stale      = $generated && Article_TTS_Generator::is_stale( $post->ID, $post );
 
+		$job_status = (string) get_post_meta( $post->ID, Article_TTS_Generator::META_JOB_STATUS, true );
+		$job_error  = (string) get_post_meta( $post->ID, Article_TTS_Generator::META_JOB_ERROR, true );
+		$running    = '' !== $job_status && ! in_array( $job_status, Article_TTS_Generator::TERMINAL, true );
+		$legacy     = $generated && (int) get_post_meta( $post->ID, Article_TTS_Generator::META_HASH_VERSION, true ) !== Article_TTS_Generator::HASH_VERSION;
+
 		wp_nonce_field( 'article_tts_metabox', 'article_tts_metabox_nonce' );
 		?>
-		<div class="article-tts-metabox" data-post-id="<?php echo esc_attr( $post->ID ); ?>">
+		<div class="article-tts-metabox" data-post-id="<?php echo esc_attr( $post->ID ); ?>" data-job-pending="<?php echo $running ? '1' : '0'; ?>">
 			<?php if ( ! $api_ready ) : ?>
 				<p class="article-tts-warning">
 					<?php
@@ -125,13 +133,31 @@ class Article_TTS_Metabox {
 					?>
 					<br>
 					<small><?php esc_html_e( 'Stimme:', 'article-tts' ); ?> <strong><?php echo esc_html( Article_TTS_Plugin::get_voice_label( $voice ) ); ?></strong></small>
-					<?php if ( $stale ) : ?>
+					<?php if ( $legacy ) : ?>
+						<br><span class="article-tts-note"><?php esc_html_e( 'Diese Fassung stammt aus der früheren Anbindung. Sie bleibt spielbar; eine neue Vertonung ist nur nötig, wenn sich der Text geändert hat.', 'article-tts' ); ?></span>
+					<?php elseif ( $stale ) : ?>
 						<br><span class="article-tts-stale"><?php esc_html_e( 'Artikel wurde nach der Audio-Generierung verändert — neu generieren empfohlen.', 'article-tts' ); ?></span>
 					<?php endif; ?>
 				<?php else : ?>
 					<em><?php esc_html_e( 'Noch keine Audio-Version generiert.', 'article-tts' ); ?></em>
 				<?php endif; ?>
 			</p>
+
+			<?php if ( $running ) : ?>
+				<p class="article-tts-running">
+					<?php esc_html_e( 'Vertonung läuft — das Audio erscheint automatisch, auch wenn du diese Seite schließt.', 'article-tts' ); ?>
+				</p>
+			<?php elseif ( '' !== $job_error ) : ?>
+				<p class="article-tts-warning">
+					<?php
+					printf(
+						/* translators: %s: error category reported by the service */
+						esc_html__( 'Die letzte Vertonung ist fehlgeschlagen (%s).', 'article-tts' ),
+						esc_html( $job_error )
+					);
+					?>
+				</p>
+			<?php endif; ?>
 
 			<?php if ( $url ) : ?>
 				<audio controls preload="metadata" src="<?php echo esc_url( $url ); ?>" style="width:100%;"></audio>
@@ -145,8 +171,18 @@ class Article_TTS_Metabox {
 			</p>
 
 			<p class="article-tts-actions">
-				<button type="button" class="button button-primary" id="article-tts-generate" <?php disabled( ! $api_ready ); ?>>
-					<?php echo $generated ? esc_html__( 'Audio neu generieren', 'article-tts' ) : esc_html__( 'Audio generieren', 'article-tts' ); ?>
+				<?php
+				// Disabled while something is running: a second submit would be a
+				// second rendition on the invoice for the same article.
+				$label = __( 'Audio generieren', 'article-tts' );
+				if ( '' !== $job_error && ! $generated ) {
+					$label = __( 'Erneut vertonen', 'article-tts' );
+				} elseif ( $generated ) {
+					$label = __( 'Audio neu generieren', 'article-tts' );
+				}
+				?>
+				<button type="button" class="button button-primary" id="article-tts-generate" <?php disabled( ! $api_ready || $running ); ?>>
+					<?php echo esc_html( $label ); ?>
 				</button>
 				<?php if ( $generated ) : ?>
 					<button type="button" class="button" id="article-tts-delete"><?php esc_html_e( 'Löschen', 'article-tts' ); ?></button>

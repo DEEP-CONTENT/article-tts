@@ -27,6 +27,20 @@
 	font-weight: 600;
 }
 
+/* A rendition in progress. Calm on purpose: nothing is wrong, it just takes a
+   while, and an alarm colour would invite a second click. */
+.article-tts-metabox .article-tts-running {
+	background: #f0f6fc;
+	border-left: 3px solid #72aee6;
+	padding: 8px 10px;
+	margin: 0 0 10px;
+}
+
+/* Audio from the previous integration — a fact, not a problem. */
+.article-tts-metabox .article-tts-note {
+	color: #646970;
+}
+
 .article-tts-metabox .article-tts-actions {
 	margin: 10px 0 4px;
 	display: flex;

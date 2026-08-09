@@ -41,6 +41,7 @@ require_once ARTICLE_TTS_PATH . 'includes/class-generator.php';
 require_once ARTICLE_TTS_PATH . 'includes/class-metabox.php';
 require_once ARTICLE_TTS_PATH . 'includes/class-player.php';
 require_once ARTICLE_TTS_PATH . 'includes/class-ajax.php';
+require_once ARTICLE_TTS_PATH . 'includes/class-cron.php';
 
 class Article_TTS_Plugin {
 
@@ -58,6 +59,7 @@ class Article_TTS_Plugin {
 		Article_TTS_Metabox::get_instance();
 		Article_TTS_Player::get_instance();
 		Article_TTS_Ajax::get_instance();
+		Article_TTS_Cron::get_instance();
 	}
 
 	public static function get_options() {
@@ -144,5 +146,17 @@ class Article_TTS_Plugin {
 }
 
 register_activation_hook( __FILE__, array( 'Article_TTS_Plugin', 'activate' ) );
+
+/**
+ * Leave no scheduled event behind. A cron hook whose callback no longer exists
+ * keeps firing on every page load for nothing.
+ */
+register_deactivation_hook(
+	__FILE__,
+	static function () {
+		require_once ARTICLE_TTS_PATH . 'includes/class-cron.php';
+		Article_TTS_Cron::unschedule();
+	}
+);
 
 add_action( 'plugins_loaded', array( 'Article_TTS_Plugin', 'get_instance' ) );
