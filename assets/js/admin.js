@@ -74,7 +74,19 @@
 		// Neuladen der Seite, also genau dem, was hier abgeschafft werden
 		// sollte. Beim Neugenerieren fiel es nicht auf, weil dort schon ein
 		// Player stand und load() gerufen wurde.
-		$player.attr('src', url);
+		// Mit einem eindeutigen Parameter laden.
+		//
+		// Der Dateiname enthaelt den Inhalts-Hash, dieselbe Adresse wurde also
+		// womoeglich schon angefragt, bevor die Datei existierte — bei einem
+		// abgebrochenen Versuch etwa. Was eine Cache- oder Schutzschicht sich
+		// davon gemerkt hat, bekommt der Player sonst erneut serviert: an einer
+		// Installation kam an dieser Stelle 412 zurueck, waehrend dieselbe
+		// Adresse nach einem Neuladen der Seite einwandfrei auslieferte.
+		//
+		// Der Parameter gilt NUR fuer dieses eine Abspielen im Editor. In den
+		// Post-Meta und damit im Player der Website steht weiter die saubere
+		// Adresse.
+		$player.attr('src', url + (url.indexOf('?') === -1 ? '?' : '&') + 'v=' + Date.now());
 		$player[0].load();
 
 		// A running rendition is over; whatever said so has to go.
