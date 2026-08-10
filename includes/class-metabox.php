@@ -84,6 +84,8 @@ class Article_TTS_Metabox {
 					'deleted'       => __( 'Audio gelöscht.', 'article-tts' ),
 					'generate'      => __( 'Audio generieren', 'article-tts' ),
 					'regenerate'    => __( 'Audio neu generieren', 'article-tts' ),
+					/* translators: %s: technical reason, e.g. "HTTP 412" */
+					'audioBlocked'  => __( 'Das Audio wurde erzeugt, ließ sich hier aber nicht laden (%s). Nach dem Speichern und Neuladen der Seite ist es abspielbar.', 'article-tts' ),
 				),
 			)
 		);

@@ -57,37 +57,86 @@
 			return;
 		}
 
-		var $player = $box.find('audio');
+		// IMMER ein frisches Element, nie das vorhandene weiterverwenden.
+		//
+		// Ein <audio> traegt seinen Zustand mit sich: eine fehlgeschlagene
+		// Quelle, gepufferte Bereiche, ein networkState im Fehler. Genau dieser
+		// Fall tritt hier regelmaessig ein, denn vor der gelungenen Vertonung
+		// stehen oft misslungene — und dann wird ein Element wiederbelebt, das
+		// bereits an derselben Adresse gescheitert ist. Ein neues Element hat
+		// nichts davon.
+		//
+		// Die Quelle bekommt einen eindeutigen Parameter: der Dateiname enthaelt
+		// den Inhalts-Hash, dieselbe Adresse wurde also womoeglich schon
+		// angefragt, bevor die Datei existierte. Der Zusatz gilt NUR fuer dieses
+		// Abspielen im Editor — in den Post-Meta und damit im Player der Website
+		// steht weiter die saubere Adresse.
+		var src = url + (url.indexOf('?') === -1 ? '?' : '&') + 'v=' + Date.now();
+		var $alt = $box.find('audio');
 
-		if (!$player.length) {
-			$player = $('<audio controls preload="metadata" style="width:100%;"></audio>')
-				.insertBefore($box.find('.article-tts-actions'));
+		var $player = $('<audio controls preload="metadata" style="width:100%;"></audio>');
+
+		if ($alt.length) {
+			// Das alte erst leeren und entladen, sonst laedt es im Hintergrund
+			// weiter, waehrend es aus dem Dokument verschwindet.
+			$alt[0].removeAttribute('src');
+			$alt[0].load();
+			$player.insertBefore($alt);
+			$alt.remove();
+		} else {
+			$player.insertBefore($box.find('.article-tts-actions'));
 		}
 
-		// Erst einhängen, DANN die Quelle setzen und laden — in dieser
-		// Reihenfolge, und für beide Fälle gleich.
+		// Die Datei per fetch holen und aus dem Speicher abspielen, statt sie
+		// dem <audio>-Element zu ueberlassen.
 		//
-		// Eine src, die auf einem noch nicht eingehängten Element gesetzt wird,
-		// startet keinen zuverlässigen Ladevorgang: das Element landet im
-		// Dokument, ohne dass der Browser je nach der Datei fragt. Sichtbar war
-		// das als ausgegrauter Play-Knopf mit 0:00 — abspielbar erst nach einem
-		// Neuladen der Seite, also genau dem, was hier abgeschafft werden
-		// sollte. Beim Neugenerieren fiel es nicht auf, weil dort schon ein
-		// Player stand und load() gerufen wurde.
-		// Mit einem eindeutigen Parameter laden.
+		// WARUM DIESER UMWEG. Ein Medienelement fordert seine Quelle mit einem
+		// Range-Header an — es will ja springen koennen. Auf einer Installation
+		// beantwortet die Schicht vor WordPress genau diese Anfrage mit 412,
+		// waehrend dieselbe Adresse direkt im Browser geoeffnet einwandfrei
+		// ausliefert. Der Player blieb dadurch grau und ohne Laufzeit, und nichts
+		// daran war im Plugin falsch.
 		//
-		// Der Dateiname enthaelt den Inhalts-Hash, dieselbe Adresse wurde also
-		// womoeglich schon angefragt, bevor die Datei existierte — bei einem
-		// abgebrochenen Versuch etwa. Was eine Cache- oder Schutzschicht sich
-		// davon gemerkt hat, bekommt der Player sonst erneut serviert: an einer
-		// Installation kam an dieser Stelle 412 zurueck, waehrend dieselbe
-		// Adresse nach einem Neuladen der Seite einwandfrei auslieferte.
+		// fetch() schickt keinen Range-Header und stellt dieselbe Anfrage, die
+		// beim direkten Oeffnen funktioniert. Die Datei kommt vollstaendig, wird
+		// zu einer lokalen Adresse und der Player laedt gar nicht mehr uebers
+		// Netz. Ein Editor, der eben eine Vertonung angestossen hat, will sie
+		// ohnehin ganz hoeren.
 		//
-		// Der Parameter gilt NUR fuer dieses eine Abspielen im Editor. In den
-		// Post-Meta und damit im Player der Website steht weiter die saubere
-		// Adresse.
-		$player.attr('src', url + (url.indexOf('?') === -1 ? '?' : '&') + 'v=' + Date.now());
-		$player[0].load();
+		// Schlaegt der Weg fehl, wird die normale Adresse gesetzt: schlechter
+		// als heute wird es dadurch nie.
+		if (window.fetch && window.URL && window.URL.createObjectURL) {
+			window.fetch(src, { credentials: 'same-origin' })
+				.then(function (res) {
+					if (!res.ok) {
+						throw new Error('HTTP ' + res.status);
+					}
+					return res.blob();
+				})
+				.then(function (blob) {
+					if ($player.data('objectUrl')) {
+						window.URL.revokeObjectURL($player.data('objectUrl'));
+					}
+					var objectUrl = window.URL.createObjectURL(blob);
+					$player.data('objectUrl', objectUrl);
+					$player.attr('src', objectUrl);
+					$player[0].load();
+				})
+				.catch(function (e) {
+					// Nicht still bleiben: ein abgelehnter Abruf sieht sonst
+					// genauso aus wie ein noch ladender — grauer Knopf, 0:00.
+					feedback(
+						$box,
+						articleTTS.i18n.audioBlocked.replace('%s', e.message || '?'),
+						true
+					);
+					$player.attr('src', src);
+					$player[0].load();
+				});
+		} else {
+			$player.attr('src', src);
+			$player[0].load();
+		}
 
 		// A running rendition is over; whatever said so has to go.
 		$box.find('.article-tts-running, .article-tts-warning').remove();
