@@ -252,6 +252,15 @@ class Article_TTS_Client {
 				break;
 		}
 
+		// A route miss, not a missing job: DC-IO answers its own 404s with a
+		// `code`, while a framework routing miss carries none. Without this the
+		// editor is shown Laravel's English "The route ... could not be found",
+		// which sounds like a bug in the plugin rather than an address that does
+		// not serve this API — or an instance where it is not deployed yet.
+		if ( 404 === $code && '' === $api_code ) {
+			$message = __( 'Unter dieser Adresse gibt es keine Text-to-Speech-Schnittstelle. Bitte die Adresse prüfen — oder die Instanz ist dafür noch nicht freigeschaltet.', 'article-tts' );
+		}
+
 		if ( 401 === $code || 403 === $code ) {
 			$message = '' !== $api_code && 'tts_not_entitled' === $api_code
 				? $message

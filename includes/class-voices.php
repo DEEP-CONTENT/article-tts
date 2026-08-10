@@ -39,6 +39,23 @@ class Article_TTS_Voices {
 	 */
 	const FALLBACK_OPTION = 'article_tts_catalog_fallback';
 
+	/**
+	 * Why the last catalogue request came back empty.
+	 *
+	 * An empty dropdown with no explanation is the worst thing this screen can
+	 * do: address and token look filled in, nothing is marked red, and the only
+	 * conclusion left is "the plugin is broken". It usually is not — the instance
+	 * cannot be reached, the token is refused, or the API is not deployed there.
+	 * Whichever it is, the answer already arrived; it was simply thrown away.
+	 *
+	 * @var WP_Error|null
+	 */
+	private static $last_error = null;
+
+	public static function last_error() {
+		return self::$last_error;
+	}
+
 	public static function voices( $force = false ) {
 		return self::fetch( self::VOICE_TRANSIENT, 'voices', $force );
 	}
@@ -69,11 +86,35 @@ class Article_TTS_Voices {
 		$options = Article_TTS_Plugin::get_options();
 		$client  = new Article_TTS_Client( $options['api_base_url'], $options['api_token'] );
 
-		$response = 'voices' === $kind ? $client->list_voices() : $client->list_models();
+		if ( ! $client->is_configured() ) {
+			self::$last_error = new WP_Error(
+				'article_tts_not_configured',
+				__( 'Adresse und Zugangstoken sind noch nicht vollständig hinterlegt.', 'article-tts' )
+			);
 
-		if ( is_wp_error( $response ) || ! isset( $response['items'] ) || ! is_array( $response['items'] ) ) {
 			return self::fallback( $kind );
 		}
+
+		$response = 'voices' === $kind ? $client->list_voices() : $client->list_models();
+
+		if ( is_wp_error( $response ) ) {
+			self::$last_error = $response;
+
+			return self::fallback( $kind );
+		}
+
+		if ( ! isset( $response['items'] ) || ! is_array( $response['items'] ) ) {
+			// A 200 that carries no catalogue. Rare, but it must not look like a
+			// connection problem — the connection plainly worked.
+			self::$last_error = new WP_Error(
+				'article_tts_empty_catalog',
+				__( 'Die Instanz hat geantwortet, aber keinen Stimmen-Katalog geliefert.', 'article-tts' )
+			);
+
+			return self::fallback( $kind );
+		}
+
+		self::$last_error = null;
 
 		$items = array_values( $response['items'] );
 

@@ -330,6 +330,20 @@ class Article_TTS_Settings {
 		echo '<select name="' . esc_attr( $name ) . '" class="regular-text">';
 		Article_TTS_Plugin::render_voice_options( $selected );
 		echo '</select>';
+
+		// Only reachable AFTER the options were rendered — that call is what
+		// fetches the catalogue and therefore what learns why it stayed empty.
+		$error = Article_TTS_Voices::last_error();
+
+		if ( ! $error instanceof WP_Error ) {
+			return;
+		}
+
+		printf(
+			'<div class="notice notice-error inline"><p><strong>%1$s</strong> %2$s</p></div>',
+			esc_html__( 'Stimmen konnten nicht geladen werden.', 'article-tts' ),
+			esc_html( $error->get_error_message() )
+		);
 	}
 
 	public function field_enabled_post_types() {
