@@ -153,6 +153,10 @@ class Article_TTS_Ajax {
 				'terminal'   => in_array( $status['job_status'], Article_TTS_Generator::TERMINAL, true ),
 				'error'      => $status['error'],
 				'url'        => $url,
+				// Rendered here rather than assembled in JavaScript: the box shows
+				// this line on page load too, and one wording is worth more than
+				// two implementations of it.
+				'statusHtml' => Article_TTS_Metabox::status_html( get_post( $post_id ) ),
 			)
 		);
 	}
@@ -168,6 +172,8 @@ class Article_TTS_Ajax {
 		Article_TTS_Generator::delete( $post_id );
 		delete_transient( $this->lock_key( $post_id ) );
 
-		wp_send_json_success();
+		wp_send_json_success(
+			array( 'statusHtml' => Article_TTS_Metabox::status_html( get_post( $post_id ) ) )
+		);
 	}
 }

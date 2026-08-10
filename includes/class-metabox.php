@@ -89,19 +89,66 @@ class Article_TTS_Metabox {
 		);
 	}
 
+	/**
+	 * The status line as a string, because two places need exactly the same one.
+	 *
+	 * The editor sees it rendered by PHP on load, and again the moment a rendition
+	 * finishes — that second time over Ajax, without a reload. Building it in
+	 * JavaScript instead would mean a second implementation of the wording, the
+	 * size formatting and the legacy/stale rules, and the two would drift.
+	 *
+	 * @param WP_Post $post
+	 * @return string Inner HTML of the status paragraph, already escaped.
+	 */
+	public static function status_html( $post ) {
+		$generated = (int) get_post_meta( $post->ID, Article_TTS_Generator::META_GENERATED, true );
+
+		if ( ! $generated ) {
+			return '<em>' . esc_html__( 'Noch keine Audio-Version generiert.', 'article-tts' ) . '</em>';
+		}
+
+		$voice  = get_post_meta( $post->ID, Article_TTS_Generator::META_VOICE, true );
+		$size   = (int) get_post_meta( $post->ID, Article_TTS_Generator::META_SIZE, true );
+		// The formula lives in ONE place now. It used to be repeated here, which
+		// is exactly how two copies of a hash drift apart.
+		$stale  = Article_TTS_Generator::is_stale( $post->ID, $post );
+		$legacy = (int) get_post_meta( $post->ID, Article_TTS_Generator::META_HASH_VERSION, true ) !== Article_TTS_Generator::HASH_VERSION;
+
+		$html = '<strong>' . esc_html__( 'Status:', 'article-tts' ) . '</strong> ';
+
+		$html .= sprintf(
+			/* translators: 1: human-readable age, 2: file size */
+			esc_html__( 'Generiert vor %1$s · %2$s', 'article-tts' ),
+			// time(), NOT current_time( 'timestamp' ). META_GENERATED is written
+			// with time() — a UTC epoch — while current_time() adds the site's
+			// offset on top. On a UTC+2 site a rendition that had just finished
+			// therefore announced itself as "generiert vor 2 Stunden".
+			esc_html( human_time_diff( $generated, time() ) ),
+			esc_html( size_format( $size ) )
+		);
+
+		$html .= '<br><small>' . esc_html__( 'Stimme:', 'article-tts' ) . ' <strong>'
+			. esc_html( Article_TTS_Plugin::get_voice_label( $voice ) ) . '</strong></small>';
+
+		if ( $legacy ) {
+			$html .= '<br><span class="article-tts-note">'
+				. esc_html__( 'Diese Fassung stammt aus der früheren Anbindung. Sie bleibt spielbar; eine neue Vertonung ist nur nötig, wenn sich der Text geändert hat.', 'article-tts' )
+				. '</span>';
+		} elseif ( $stale ) {
+			$html .= '<br><span class="article-tts-stale">'
+				. esc_html__( 'Artikel wurde nach der Audio-Generierung verändert — neu generieren empfohlen.', 'article-tts' )
+				. '</span>';
+		}
+
+		return $html;
+	}
+
 	public function render( $post ) {
 		$options    = Article_TTS_Plugin::get_options();
 		$api_ready  = '' !== $options['api_base_url'] && '' !== $options['api_token'];
 		$generated  = (int) get_post_meta( $post->ID, Article_TTS_Generator::META_GENERATED, true );
 		$url        = get_post_meta( $post->ID, Article_TTS_Generator::META_URL, true );
-		$voice      = get_post_meta( $post->ID, Article_TTS_Generator::META_VOICE, true );
-		$hash       = get_post_meta( $post->ID, Article_TTS_Generator::META_HASH, true );
-		$size       = (int) get_post_meta( $post->ID, Article_TTS_Generator::META_SIZE, true );
 		$override   = get_post_meta( $post->ID, Article_TTS_Generator::META_OVERRIDE, true );
-		$resolved   = Article_TTS_Generator::resolve_voice_id( $post->ID, $options );
-		// The formula lives in ONE place now. It used to be repeated here, which
-		// is exactly how two copies of a hash drift apart.
-		$stale      = $generated && Article_TTS_Generator::is_stale( $post->ID, $post );
 
 		// An article that was never saved has no content in the database — and
 		// build_text() reads from there, not from the editor. Rendering it would
@@ -111,7 +158,6 @@ class Article_TTS_Metabox {
 		$job_status = (string) get_post_meta( $post->ID, Article_TTS_Generator::META_JOB_STATUS, true );
 		$job_error  = (string) get_post_meta( $post->ID, Article_TTS_Generator::META_JOB_ERROR, true );
 		$running    = '' !== $job_status && ! in_array( $job_status, Article_TTS_Generator::TERMINAL, true );
-		$legacy     = $generated && (int) get_post_meta( $post->ID, Article_TTS_Generator::META_HASH_VERSION, true ) !== Article_TTS_Generator::HASH_VERSION;
 
 		wp_nonce_field( 'article_tts_metabox', 'article_tts_metabox_nonce' );
 		?>
@@ -128,28 +174,8 @@ class Article_TTS_Metabox {
 				</p>
 			<?php endif; ?>
 
-			<p class="article-tts-status">
-				<?php if ( $generated ) : ?>
-					<strong><?php esc_html_e( 'Status:', 'article-tts' ); ?></strong>
-					<?php
-					printf(
-						/* translators: 1: human-readable date, 2: file size */
-						esc_html__( 'Generiert vor %1$s · %2$s', 'article-tts' ),
-						esc_html( human_time_diff( $generated, current_time( 'timestamp' ) ) ),
-						esc_html( size_format( $size ) )
-					);
-					?>
-					<br>
-					<small><?php esc_html_e( 'Stimme:', 'article-tts' ); ?> <strong><?php echo esc_html( Article_TTS_Plugin::get_voice_label( $voice ) ); ?></strong></small>
-					<?php if ( $legacy ) : ?>
-						<br><span class="article-tts-note"><?php esc_html_e( 'Diese Fassung stammt aus der früheren Anbindung. Sie bleibt spielbar; eine neue Vertonung ist nur nötig, wenn sich der Text geändert hat.', 'article-tts' ); ?></span>
-					<?php elseif ( $stale ) : ?>
-						<br><span class="article-tts-stale"><?php esc_html_e( 'Artikel wurde nach der Audio-Generierung verändert — neu generieren empfohlen.', 'article-tts' ); ?></span>
-					<?php endif; ?>
-				<?php else : ?>
-					<em><?php esc_html_e( 'Noch keine Audio-Version generiert.', 'article-tts' ); ?></em>
-				<?php endif; ?>
-			</p>
+			<?php // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- status_html() escapes every part it assembles. ?>
+			<p class="article-tts-status"><?php echo self::status_html( $post ); ?></p>
 
 			<?php if ( $unsaved ) : ?>
 				<p class="article-tts-warning">

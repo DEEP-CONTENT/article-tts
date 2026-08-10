@@ -35,6 +35,17 @@
 	 * empty article — and on any screen it would discard whatever is unsaved.
 	 * The metabox has everything it needs to update itself.
 	 */
+	/**
+	 * The status line comes from the server, rendered by the same PHP the metabox
+	 * itself uses. Without this the box kept saying "Noch keine Audio-Version
+	 * generiert" underneath a player that was already playing one.
+	 */
+	function setStatus($box, html) {
+		if (html) {
+			$box.find('.article-tts-status').html(html);
+		}
+	}
+
 	function showAudio($box, url) {
 		var $player = $box.find('audio');
 
@@ -91,6 +102,7 @@
 
 				if (data.job_status === 'completed' && data.url) {
 					feedback($box, articleTTS.i18n.success, false);
+					setStatus($box, data.statusHtml);
 					showAudio($box, data.url);
 					return;
 				}
@@ -189,6 +201,7 @@
 					$box.find('audio').remove();
 					$box.find('.article-tts-running, .article-tts-warning').remove();
 					$box.attr('data-job-pending', '0');
+					setStatus($box, res.data && res.data.statusHtml);
 					$btn.remove();
 					$box.find('#article-tts-generate')
 						.prop('disabled', false)
