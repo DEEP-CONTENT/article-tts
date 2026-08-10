@@ -82,6 +82,21 @@ class Article_TTS_Generator {
 			return new WP_Error( 'article_tts_no_voice', __( 'Keine Standard-Stimme konfiguriert und kein Post-Override gesetzt.', 'article-tts' ) );
 		}
 
+		$unknown_voice = self::unknown_voice( $voice_id, $post_id );
+		if ( $unknown_voice ) {
+			return $unknown_voice;
+		}
+
+		// Not a nicety. A submit without a model is rejected downstream, and the
+		// only thing that reaches the editor is the category "text_rejected" —
+		// which sends everyone to read the article, where nothing is wrong.
+		if ( '' === (string) $options['model_id'] ) {
+			return new WP_Error(
+				'article_tts_no_model',
+				__( 'Es ist kein Modell ausgewählt. Ohne Modell lehnt der Sprachdienst die Vertonung ab — bitte in den Einstellungen unter „Stimme" ein Modell wählen und speichern.', 'article-tts' )
+			);
+		}
+
 		$text = self::normalize( self::build_text( $post, $options ) );
 		if ( '' === $text ) {
 			return new WP_Error( 'article_tts_empty_text', __( 'Der zusammengesetzte Artikeltext ist leer.', 'article-tts' ) );
@@ -406,6 +421,58 @@ class Article_TTS_Generator {
 	 * @param array $options Plugin options.
 	 * @return string Voice ID (may be empty).
 	 */
+	/**
+	 * Refuse a voice the instance does not have, BEFORE anything is submitted.
+	 *
+	 * An installation upgraded from the provider era still carries the old
+	 * vendor's voice id. It is meaningless to io-tts, which answers 422, which
+	 * arrives back here as the category `text_rejected` — a phrase that sends
+	 * everyone looking at the article text, where nothing is wrong. Worse, the
+	 * job is created and counted before it fails.
+	 *
+	 * Only refuses when a catalogue is actually known. If the connection is down
+	 * the list is empty, and refusing then would block a perfectly good voice
+	 * over a temporary outage.
+	 *
+	 * Which of the two places is at fault matters. An article carries its own
+	 * optional voice, and that one WINS over the setting — so changing the
+	 * default in the settings screen fixes nothing while a leftover override
+	 * sits on the article. The message therefore names the place to go.
+	 *
+	 * @param string $voice_id Already resolved: override first, then default.
+	 * @param int    $post_id
+	 * @return WP_Error|null Error when the voice is certainly wrong, else null.
+	 */
+	private static function unknown_voice( $voice_id, $post_id ) {
+		$catalog = Article_TTS_Voices::voices();
+
+		if ( empty( $catalog ) ) {
+			return null;
+		}
+
+		foreach ( $catalog as $voice ) {
+			if ( isset( $voice['id'] ) && (string) $voice['id'] === $voice_id ) {
+				return null;
+			}
+		}
+
+		$from_override = (string) get_post_meta( $post_id, self::META_OVERRIDE, true ) === $voice_id;
+
+		$where = $from_override
+			? __( 'Sie steht bei diesem Artikel unter „Stimme (optional, überschreibt Standard)" und gilt dort vor der Einstellung — bitte dort eine andere wählen oder auf „Standard verwenden" stellen.', 'article-tts' )
+			: __( 'Sie ist als Standard-Stimme hinterlegt — bitte in den Einstellungen eine Stimme auswählen und speichern.', 'article-tts' );
+
+		return new WP_Error(
+			'article_tts_unknown_voice',
+			sprintf(
+				/* translators: 1: the configured voice id, 2: where it is configured */
+				__( 'Die gewählte Stimme (%1$s) gibt es auf dieser Instanz nicht — das bleibt nach der Umstellung von der früheren Anbindung übrig. %2$s', 'article-tts' ),
+				$voice_id,
+				$where
+			)
+		);
+	}
+
 	public static function resolve_voice_id( $post_id, $options ) {
 		$override = get_post_meta( $post_id, self::META_OVERRIDE, true );
 		if ( $override ) {

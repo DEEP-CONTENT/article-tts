@@ -136,6 +136,14 @@ class Article_TTS_Settings {
 			'article_tts_voices'
 		);
 
+		add_settings_field(
+			'model_id',
+			__( 'Modell', 'article-tts' ),
+			array( $this, 'field_model' ),
+			self::PAGE_SLUG,
+			'article_tts_voices'
+		);
+
 		add_settings_section(
 			'article_tts_behaviour',
 			__( 'Verhalten', 'article-tts' ),
@@ -229,11 +237,25 @@ class Article_TTS_Settings {
 		$out['api_token']    = isset( $input['api_token'] ) ? trim( sanitize_text_field( $input['api_token'] ) ) : '';
 
 		$out['default_voice_id'] = isset( $input['default_voice_id'] ) ? sanitize_text_field( $input['default_voice_id'] ) : '';
-		// Das Modell kommt jetzt aus dem Katalog der Instanz. Leer heisst: die
-		// Gegenseite entscheidet — das ist der sinnvolle Default, weil sie weiss,
-		// welche Modelle dort ueberhaupt aktiv sind.
-		$out['model_id'] = isset( $input['model_id'] ) ? sanitize_text_field( $input['model_id'] ) : '';
-		$out['language'] = isset( $input['language'] ) ? sanitize_text_field( $input['language'] ) : 'de';
+
+		// Auf den GESPEICHERTEN Wert zurueckfallen, nicht auf den Default.
+		//
+		// Ein Feld, das das Formular nicht mitschickt, war frueher danach leer —
+		// und genau das ist mit dem Modell passiert: es hatte keine Eingabe auf
+		// der Seite, also hat jedes Speichern der Verbindungsdaten es geloescht.
+		// Eine Vertonung ohne Modell wird abgelehnt, sichtbar nur als
+		// "text_rejected" am Artikel. Fehlt ein Schluessel, heisst das "nicht
+		// veraendert", nicht "geleert".
+		$stored = get_option( ARTICLE_TTS_OPTION_KEY );
+		$stored = is_array( $stored ) ? $stored : array();
+
+		$out['model_id'] = isset( $input['model_id'] )
+			? sanitize_text_field( $input['model_id'] )
+			: (string) ( $stored['model_id'] ?? $defaults['model_id'] );
+
+		$out['language'] = isset( $input['language'] )
+			? sanitize_text_field( $input['language'] )
+			: (string) ( $stored['language'] ?? $defaults['language'] );
 
 		// Der Katalog haengt an der Verbindung: aendert sie sich, ist der
 		// zwischengespeicherte Stand nicht mehr zustaendig.
@@ -324,6 +346,81 @@ class Article_TTS_Settings {
 			ARTICLE_TTS_OPTION_KEY . '[default_voice_id]',
 			$options['default_voice_id']
 		);
+	}
+
+	/**
+	 * The model, which is NOT optional even though it looks like it.
+	 *
+	 * It used to have no field at all — the assumption was that an empty value
+	 * lets the instance choose. It does not: a rendition without a model is
+	 * rejected, and the only trace at the article is the word "text_rejected",
+	 * which points at the text, where nothing is wrong.
+	 *
+	 * So it gets a field, and no empty option to fall into.
+	 */
+	public function field_model() {
+		$options = Article_TTS_Plugin::get_options();
+		$current = (string) $options['model_id'];
+		$models  = Article_TTS_Voices::models();
+
+		echo '<select name="' . esc_attr( ARTICLE_TTS_OPTION_KEY . '[model_id]' ) . '" class="regular-text">';
+
+		if ( '' === $current ) {
+			printf( '<option value="" selected>%s</option>', esc_html__( '— bitte auswählen —', 'article-tts' ) );
+		}
+
+		$known = array();
+		foreach ( $models as $model ) {
+			if ( ! isset( $model['slug'] ) ) {
+				continue;
+			}
+
+			$known[] = $model['slug'];
+			$label   = isset( $model['display_name'] ) ? (string) $model['display_name'] : (string) $model['slug'];
+
+			// Which languages a model speaks decides whether it fits at all, and
+			// the character ceiling decides how an article gets split.
+			$languages = isset( $model['languages'] ) && is_array( $model['languages'] ) ? $model['languages'] : array();
+			$fits      = empty( $languages ) || in_array( $options['language'], $languages, true );
+			$max       = isset( $model['capabilities']['max_characters'] ) ? (int) $model['capabilities']['max_characters'] : 0;
+
+			$suffix = array();
+			if ( $max ) {
+				/* translators: %s: formatted character count */
+				$suffix[] = sprintf( __( 'bis %s Zeichen', 'article-tts' ), number_format_i18n( $max ) );
+			}
+			if ( ! $fits ) {
+				/* translators: %s: language code */
+				$suffix[] = sprintf( __( 'spricht kein %s', 'article-tts' ), strtoupper( $options['language'] ) );
+			}
+
+			printf(
+				'<option value="%1$s" %2$s>%3$s</option>',
+				esc_attr( $model['slug'] ),
+				selected( $current, $model['slug'], false ),
+				esc_html( $suffix ? $label . ' (' . implode( ', ', $suffix ) . ')' : $label )
+			);
+		}
+
+		// A stored model the catalogue no longer offers stays selectable rather
+		// than silently switching the installation to a different one.
+		if ( '' !== $current && ! in_array( $current, $known, true ) ) {
+			printf(
+				'<option value="%1$s" selected>%2$s</option>',
+				esc_attr( $current ),
+				/* translators: %s: model id */
+				esc_html( sprintf( __( 'Unbekanntes Modell (%s)', 'article-tts' ), $current ) )
+			);
+		}
+
+		echo '</select>';
+
+		if ( '' === $current ) {
+			printf(
+				'<div class="notice notice-warning inline"><p>%s</p></div>',
+				esc_html__( 'Ohne Modell schlägt jede Vertonung fehl. Bitte eines auswählen und speichern.', 'article-tts' )
+			);
+		}
 	}
 
 	private function render_voice_select( $name, $selected ) {

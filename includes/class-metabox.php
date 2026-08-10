@@ -143,6 +143,45 @@ class Article_TTS_Metabox {
 		return $html;
 	}
 
+	/**
+	 * Turn the service's error category into something an editor can act on.
+	 *
+	 * The categories are an API vocabulary, not a message. "text_rejected" in
+	 * particular sends everyone to inspect the article text, where nothing is
+	 * wrong — the usual cause is a voice the instance does not have, left over
+	 * from the previous provider.
+	 *
+	 * An unknown category still prints: a new one on the far side must not turn
+	 * into an empty warning box.
+	 *
+	 * @param string $category
+	 * @return string
+	 */
+	public static function error_sentence( $category ) {
+		switch ( $category ) {
+			case 'text_rejected':
+				return __( 'Die letzte Vertonung wurde abgelehnt. Meist liegt es an der eingestellten Stimme — bitte in den Einstellungen prüfen, ob sie noch angeboten wird.', 'article-tts' );
+			case 'upstream_unreachable':
+				return __( 'Der Sprachdienst war nicht erreichbar. Ein erneuter Versuch lohnt sich.', 'article-tts' );
+			case 'upstream_timeout':
+				return __( 'Der Sprachdienst hat zu lange gebraucht. Ein erneuter Versuch lohnt sich.', 'article-tts' );
+			case 'upstream_failed':
+				return __( 'Der Sprachdienst konnte den Artikel nicht vertonen. Bitte erneut versuchen; bleibt es dabei, wenden Sie sich an Heise I/O.', 'article-tts' );
+			case 'compose_failed':
+				return __( 'Die Teile des Artikels ließen sich nicht zu einer Datei zusammenfügen. Bitte erneut versuchen.', 'article-tts' );
+			case 'job_expired':
+				return __( 'Die Vertonung wurde nicht rechtzeitig fertig und ist abgelaufen. Bitte erneut starten.', 'article-tts' );
+			case 'internal':
+				return __( 'Bei der Vertonung ist ein interner Fehler aufgetreten. Bitte erneut versuchen; bleibt es dabei, wenden Sie sich an Heise I/O.', 'article-tts' );
+		}
+
+		return sprintf(
+			/* translators: %s: error category reported by the service */
+			__( 'Die letzte Vertonung ist fehlgeschlagen (%s).', 'article-tts' ),
+			$category
+		);
+	}
+
 	public function render( $post ) {
 		$options    = Article_TTS_Plugin::get_options();
 		$api_ready  = '' !== $options['api_base_url'] && '' !== $options['api_token'];
@@ -189,13 +228,7 @@ class Article_TTS_Metabox {
 				</p>
 			<?php elseif ( '' !== $job_error ) : ?>
 				<p class="article-tts-warning">
-					<?php
-					printf(
-						/* translators: %s: error category reported by the service */
-						esc_html__( 'Die letzte Vertonung ist fehlgeschlagen (%s).', 'article-tts' ),
-						esc_html( $job_error )
-					);
-					?>
+					<?php echo esc_html( self::error_sentence( $job_error ) ); ?>
 				</p>
 			<?php endif; ?>
 

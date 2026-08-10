@@ -27,7 +27,7 @@ class Article_TTS_Upgrade {
 	 * run. Bump this only when a step is added.
 	 */
 	const DB_VERSION_OPTION = 'article_tts_db_version';
-	const DB_VERSION        = 2;
+	const DB_VERSION        = 3;
 
 	private static $instance = null;
 
@@ -62,6 +62,10 @@ class Article_TTS_Upgrade {
 		if ( $from < 2 ) {
 			$this->mark_legacy_audio();
 			$this->drop_provider_key();
+		}
+
+		if ( $from < 3 ) {
+			$this->drop_provider_model();
 		}
 
 		update_option( self::DB_VERSION_OPTION, self::DB_VERSION, false );
@@ -142,6 +146,38 @@ class Article_TTS_Upgrade {
 		}
 
 		unset( $stored['api_key'] );
+		update_option( ARTICLE_TTS_OPTION_KEY, $stored );
+	}
+
+	/**
+	 * Remove the old provider's model id.
+	 *
+	 * A model belongs to one vendor. `eleven_multilingual_v2` means nothing to
+	 * io-tts, which rejects the segment — the rendition fails after the job has
+	 * been created, and the settings screen offers no field to correct it,
+	 * because the model now comes from the instance's catalogue.
+	 *
+	 * Empty is not a gap here: it means "the instance decides", which is the
+	 * right answer, since it knows which models it actually has.
+	 *
+	 * The VOICE is deliberately left alone. Clearing it would silently switch
+	 * every article to a different speaker; a wrong one is refused before
+	 * anything is submitted instead {@see Article_TTS_Generator::submit()}.
+	 */
+	private function drop_provider_model() {
+		$stored = get_option( ARTICLE_TTS_OPTION_KEY );
+
+		if ( ! is_array( $stored ) || ! isset( $stored['model_id'] ) || '' === $stored['model_id'] ) {
+			return;
+		}
+
+		// Anything from the io-tts catalogue is prefixed with its provider —
+		// `elevenlabs-eleven-multilingual-v2`. The provider-era ids never were.
+		if ( false !== strpos( (string) $stored['model_id'], '-' ) ) {
+			return;
+		}
+
+		$stored['model_id'] = '';
 		update_option( ARTICLE_TTS_OPTION_KEY, $stored );
 	}
 
