@@ -315,7 +315,7 @@ class Article_TTS_Settings {
 			esc_attr( ARTICLE_TTS_OPTION_KEY ),
 			esc_attr( $options['api_token'] )
 		);
-		echo '<p class="description">' . esc_html__( 'Den Zugangstoken erhaltet ihr von uns.', 'article-tts' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'Den Zugangstoken erhaltet ihr von uns — falls keiner vorliegt, fragt einfach nach.', 'article-tts' ) . '</p>';
 	}
 
 	public function field_default_voice() {
