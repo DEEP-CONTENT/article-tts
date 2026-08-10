@@ -81,6 +81,9 @@ class Article_TTS_Metabox {
 					'deleting'      => __( 'Lösche…', 'article-tts' ),
 					'failed'        => __( 'Fehler', 'article-tts' ),
 					'success'       => __( 'Erfolgreich.', 'article-tts' ),
+					'deleted'       => __( 'Audio gelöscht.', 'article-tts' ),
+					'generate'      => __( 'Audio generieren', 'article-tts' ),
+					'regenerate'    => __( 'Audio neu generieren', 'article-tts' ),
 				),
 			)
 		);
@@ -99,6 +102,11 @@ class Article_TTS_Metabox {
 		// The formula lives in ONE place now. It used to be repeated here, which
 		// is exactly how two copies of a hash drift apart.
 		$stale      = $generated && Article_TTS_Generator::is_stale( $post->ID, $post );
+
+		// An article that was never saved has no content in the database — and
+		// build_text() reads from there, not from the editor. Rendering it would
+		// either fail as "empty text" or, worse, vertone a stale revision.
+		$unsaved    = in_array( $post->post_status, array( 'auto-draft' ), true );
 
 		$job_status = (string) get_post_meta( $post->ID, Article_TTS_Generator::META_JOB_STATUS, true );
 		$job_error  = (string) get_post_meta( $post->ID, Article_TTS_Generator::META_JOB_ERROR, true );
@@ -143,6 +151,12 @@ class Article_TTS_Metabox {
 				<?php endif; ?>
 			</p>
 
+			<?php if ( $unsaved ) : ?>
+				<p class="article-tts-warning">
+					<?php esc_html_e( 'Bitte den Beitrag zuerst speichern — vertont wird der gespeicherte Text, nicht der im Editor.', 'article-tts' ); ?>
+				</p>
+			<?php endif; ?>
+
 			<?php if ( $running ) : ?>
 				<p class="article-tts-running">
 					<?php esc_html_e( 'Vertonung läuft — das Audio erscheint automatisch, auch wenn du diese Seite schließt.', 'article-tts' ); ?>
@@ -181,7 +195,7 @@ class Article_TTS_Metabox {
 					$label = __( 'Audio neu generieren', 'article-tts' );
 				}
 				?>
-				<button type="button" class="button button-primary" id="article-tts-generate" <?php disabled( ! $api_ready || $running ); ?>>
+				<button type="button" class="button button-primary" id="article-tts-generate" <?php disabled( ! $api_ready || $running || $unsaved ); ?>>
 					<?php echo esc_html( $label ); ?>
 				</button>
 				<?php if ( $generated ) : ?>

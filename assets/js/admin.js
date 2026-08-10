@@ -27,10 +27,32 @@
 		$fb.toggleClass('article-tts-success', !isError);
 	}
 
-	function reloadAfter(ms) {
-		setTimeout(function () {
-			window.location.reload();
-		}, ms || 800);
+	/**
+	 * Show the finished audio without navigating.
+	 *
+	 * NEVER window.location.reload(). On post-new.php that URL creates a FRESH
+	 * draft, so a reload after a successful rendition drops the editor into an
+	 * empty article — and on any screen it would discard whatever is unsaved.
+	 * The metabox has everything it needs to update itself.
+	 */
+	function showAudio($box, url) {
+		var $player = $box.find('audio');
+
+		if ($player.length) {
+			$player.attr('src', url);
+			$player[0].load();
+		} else {
+			$('<audio controls preload="metadata" style="width:100%;"></audio>')
+				.attr('src', url)
+				.insertBefore($box.find('.article-tts-actions'));
+		}
+
+		// A running rendition is over; whatever said so has to go.
+		$box.find('.article-tts-running, .article-tts-warning').remove();
+		$box.attr('data-job-pending', '0');
+
+		var $btn = $box.find('#article-tts-generate');
+		$btn.prop('disabled', false).text(articleTTS.i18n.regenerate);
 	}
 
 	function progressText(data) {
@@ -69,7 +91,7 @@
 
 				if (data.job_status === 'completed' && data.url) {
 					feedback($box, articleTTS.i18n.success, false);
-					reloadAfter(800);
+					showAudio($box, data.url);
 					return;
 				}
 
@@ -164,7 +186,14 @@
 		})
 			.done(function (res) {
 				if (res && res.success) {
-					reloadAfter(500);
+					$box.find('audio').remove();
+					$box.find('.article-tts-running, .article-tts-warning').remove();
+					$box.attr('data-job-pending', '0');
+					$btn.remove();
+					$box.find('#article-tts-generate')
+						.prop('disabled', false)
+						.text(articleTTS.i18n.generate);
+					feedback($box, articleTTS.i18n.deleted, false);
 				} else {
 					feedback($box, articleTTS.i18n.failed, true);
 					$btn.prop('disabled', false);
