@@ -42,6 +42,7 @@ require_once ARTICLE_TTS_PATH . 'includes/class-metabox.php';
 require_once ARTICLE_TTS_PATH . 'includes/class-player.php';
 require_once ARTICLE_TTS_PATH . 'includes/class-ajax.php';
 require_once ARTICLE_TTS_PATH . 'includes/class-cron.php';
+require_once ARTICLE_TTS_PATH . 'includes/class-upgrade.php';
 
 class Article_TTS_Plugin {
 
@@ -60,6 +61,7 @@ class Article_TTS_Plugin {
 		Article_TTS_Player::get_instance();
 		Article_TTS_Ajax::get_instance();
 		Article_TTS_Cron::get_instance();
+		Article_TTS_Upgrade::get_instance();
 	}
 
 	public static function get_options() {
@@ -127,6 +129,15 @@ class Article_TTS_Plugin {
 		$existing = get_option( ARTICLE_TTS_OPTION_KEY );
 		if ( ! is_array( $existing ) ) {
 			update_option( ARTICLE_TTS_OPTION_KEY, self::get_default_options() );
+
+			// A fresh install has nothing to migrate. Marking it now keeps the
+			// upgrade steps from ever looking at this site.
+			require_once ARTICLE_TTS_PATH . 'includes/class-upgrade.php';
+			update_option(
+				Article_TTS_Upgrade::DB_VERSION_OPTION,
+				Article_TTS_Upgrade::DB_VERSION,
+				false
+			);
 		}
 
 		$uploads = wp_upload_dir();
@@ -155,6 +166,7 @@ register_deactivation_hook(
 	__FILE__,
 	static function () {
 		require_once ARTICLE_TTS_PATH . 'includes/class-cron.php';
+require_once ARTICLE_TTS_PATH . 'includes/class-upgrade.php';
 		Article_TTS_Cron::unschedule();
 	}
 );
