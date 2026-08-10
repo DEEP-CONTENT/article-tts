@@ -47,6 +47,16 @@
 	}
 
 	function showAudio($box, url) {
+		// Ohne Adresse KEINEN Player einsetzen. Ein <audio> ohne brauchbare
+		// Quelle rendert als ausgegrauter Knopf mit 0:00 und sieht damit exakt
+		// aus wie ein kaputtes Audio — der Hinweis, dass etwas fehlt, wäre
+		// unsichtbar.
+		if (!url) {
+			feedback($box, articleTTS.i18n.failed + ': keine Audio-Adresse erhalten', true);
+			$box.find('#article-tts-generate').prop('disabled', false);
+			return;
+		}
+
 		var $player = $box.find('audio');
 
 		if (!$player.length) {
