@@ -123,7 +123,7 @@ class Article_TTS_Settings {
 			'article_tts_voices',
 			__( 'Stimme', 'article-tts' ),
 			function () {
-				echo '<p>' . esc_html__( 'Wähle die Standard-Stimme. Pro Artikel lässt sich diese in der Sidebar-Box des Post-Editors überschreiben.', 'article-tts' ) . '</p>';
+				echo '<p>' . esc_html__( 'Wählen Sie die Standard-Stimme. Pro Artikel lässt sich diese in der Sidebar-Box des Post-Editors überschreiben.', 'article-tts' ) . '</p>';
 			},
 			self::PAGE_SLUG
 		);
@@ -315,7 +315,7 @@ class Article_TTS_Settings {
 			esc_attr( ARTICLE_TTS_OPTION_KEY ),
 			esc_attr( $options['api_token'] )
 		);
-		echo '<p class="description">' . esc_html__( 'Den Zugangstoken erhaltet ihr von uns — falls keiner vorliegt, fragt einfach nach.', 'article-tts' ) . '</p>';
+		echo '<p class="description">' . esc_html__( 'Den Zugangstoken erhalten Sie von Heise I/O. Falls Ihnen keiner vorliegt, wenden Sie sich bitte dorthin.', 'article-tts' ) . '</p>';
 	}
 
 	public function field_default_voice() {

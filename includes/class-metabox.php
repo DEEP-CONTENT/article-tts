@@ -185,7 +185,7 @@ class Article_TTS_Metabox {
 
 			<?php if ( $running ) : ?>
 				<p class="article-tts-running">
-					<?php esc_html_e( 'Vertonung läuft — das Audio erscheint automatisch, auch wenn du diese Seite schließt.', 'article-tts' ); ?>
+					<?php esc_html_e( 'Vertonung läuft — das Audio erscheint automatisch, auch wenn Sie diese Seite schließen.', 'article-tts' ); ?>
 				</p>
 			<?php elseif ( '' !== $job_error ) : ?>
 				<p class="article-tts-warning">
