@@ -104,25 +104,59 @@ class Article_TTS_Client {
 			return new WP_Error( 'article_tts_not_configured', __( 'Verbindung zu DC-IO ist nicht konfiguriert.', 'article-tts' ) );
 		}
 
-		$temp = download_url(
+		// Deliberately NOT download_url(). Two reasons, both found the hard way:
+		//
+		// 1. It takes three parameters — url, timeout, signature check. A fourth
+		//    argument with headers is silently ignored, so the request would go
+		//    out WITHOUT the bearer token and come back 403.
+		// 2. It fetches through wp_safe_remote_get(), which refuses any host
+		//    resolving to a private address. Every other call in this class uses
+		//    the unrestricted client, so an instance inside a company network
+		//    would submit fine and then fail only on the download — the most
+		//    confusing shape that failure could take.
+		$temp = wp_tempnam( 'article-tts' );
+
+		if ( ! $temp ) {
+			return new WP_Error( 'article_tts_write', __( 'Konnte keine temporäre Datei anlegen.', 'article-tts' ) );
+		}
+
+		$response = wp_remote_get(
 			$this->base_url . '/api/v1/tts/articles/' . rawurlencode( $job_id ) . '/audio',
-			self::DOWNLOAD_TIMEOUT,
-			false,
 			array(
-				'headers' => array( 'Authorization' => 'Bearer ' . $this->token ),
+				'timeout'  => self::DOWNLOAD_TIMEOUT,
+				'stream'   => true,
+				'filename' => $temp,
+				'headers'  => array(
+					'Authorization' => 'Bearer ' . $this->token,
+					'Accept'        => 'audio/mpeg',
+				),
 			)
 		);
 
-		if ( is_wp_error( $temp ) ) {
-			return $temp;
+		if ( is_wp_error( $response ) ) {
+			@unlink( $temp );
+			return $response;
 		}
 
-		$size = (int) filesize( $temp );
+		$code = (int) wp_remote_retrieve_response_code( $response );
+
+		// With stream => true the body is written to the file whatever the
+		// status is — an error page would otherwise be stored as an MP3.
+		if ( $code < 200 || $code >= 300 ) {
+			$decoded = json_decode( (string) @file_get_contents( $temp ), true );
+			@unlink( $temp );
+
+			return $this->error_from( $code, is_array( $decoded ) ? $decoded : array() );
+		}
+
+		$size = (int) @filesize( $temp );
 		if ( $size <= 0 ) {
 			@unlink( $temp );
 			return new WP_Error( 'article_tts_empty_audio', __( 'Die heruntergeladene Audiodatei ist leer.', 'article-tts' ) );
 		}
 
+		// Move only once the file is complete: a download that dies halfway must
+		// not leave a truncated MP3 where the player expects a whole one.
 		if ( ! @rename( $temp, $destination ) ) {
 			@unlink( $temp );
 			return new WP_Error( 'article_tts_write', __( 'Konnte Audio-Datei nicht schreiben.', 'article-tts' ) );
