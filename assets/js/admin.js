@@ -49,14 +49,23 @@
 	function showAudio($box, url) {
 		var $player = $box.find('audio');
 
-		if ($player.length) {
-			$player.attr('src', url);
-			$player[0].load();
-		} else {
-			$('<audio controls preload="metadata" style="width:100%;"></audio>')
-				.attr('src', url)
+		if (!$player.length) {
+			$player = $('<audio controls preload="metadata" style="width:100%;"></audio>')
 				.insertBefore($box.find('.article-tts-actions'));
 		}
+
+		// Erst einhängen, DANN die Quelle setzen und laden — in dieser
+		// Reihenfolge, und für beide Fälle gleich.
+		//
+		// Eine src, die auf einem noch nicht eingehängten Element gesetzt wird,
+		// startet keinen zuverlässigen Ladevorgang: das Element landet im
+		// Dokument, ohne dass der Browser je nach der Datei fragt. Sichtbar war
+		// das als ausgegrauter Play-Knopf mit 0:00 — abspielbar erst nach einem
+		// Neuladen der Seite, also genau dem, was hier abgeschafft werden
+		// sollte. Beim Neugenerieren fiel es nicht auf, weil dort schon ein
+		// Player stand und load() gerufen wurde.
+		$player.attr('src', url);
+		$player[0].load();
 
 		// A running rendition is over; whatever said so has to go.
 		$box.find('.article-tts-running, .article-tts-warning').remove();
