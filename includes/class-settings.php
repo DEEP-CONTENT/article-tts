@@ -98,7 +98,7 @@ class Article_TTS_Settings {
 			'article_tts_api',
 			__( 'Verbindung', 'article-tts' ),
 			function () {
-				echo '<p>' . esc_html__( 'Adresse und Zugangstoken der DC-IO-Instanz. Die Adresse muss die Domain sein, unter der euer Mandant erreichbar ist — an ihr wird der Zugang aufgelöst.', 'article-tts' ) . '</p>';
+				echo '<p>' . esc_html__( 'Adresse und Zugangstoken der Heise I/O-Instanz. Beispiel https://instanzname.platforms.heise-io.de/', 'article-tts' ) . '</p>';
 			},
 			self::PAGE_SLUG
 		);
