@@ -175,7 +175,7 @@ class Article_TTS_Upgrade {
 		printf(
 			'<div class="notice notice-warning"><p><strong>%1$s</strong> %2$s</p><p>%3$s</p></div>',
 			esc_html__( 'Heise I/O Article TTS:', 'article-tts' ),
-			esc_html__( 'Die Vertonung läuft jetzt über DC-IO. Bis Adresse und Zugangstoken eingetragen sind, lassen sich keine neuen Audios erzeugen — bereits erzeugte bleiben unverändert abrufbar.', 'article-tts' ),
+			esc_html__( 'Die Vertonung läuft jetzt über Heise I/O. Bis Adresse und Zugangstoken eingetragen sind, lassen sich keine neuen Audios erzeugen — bereits erzeugte bleiben unverändert abrufbar.', 'article-tts' ),
 			sprintf(
 				'<a href="%1$s" class="button button-primary">%2$s</a>',
 				esc_url( admin_url( 'options-general.php?page=' . Article_TTS_Settings::PAGE_SLUG ) ),

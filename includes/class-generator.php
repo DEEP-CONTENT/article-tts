@@ -73,7 +73,7 @@ class Article_TTS_Generator {
 		if ( ! $client->is_configured() ) {
 			return new WP_Error(
 				'article_tts_not_configured',
-				__( 'Adresse und Token für DC-IO fehlen. Bitte in den Einstellungen hinterlegen.', 'article-tts' )
+				__( 'Adresse und Token für Heise I/O fehlen. Bitte in den Einstellungen hinterlegen.', 'article-tts' )
 			);
 		}
 
@@ -109,7 +109,7 @@ class Article_TTS_Generator {
 
 		$job_id = isset( $response['jobId'] ) ? (string) $response['jobId'] : '';
 		if ( '' === $job_id ) {
-			return new WP_Error( 'article_tts_no_job', __( 'DC-IO hat keine Job-ID zurückgegeben.', 'article-tts' ) );
+			return new WP_Error( 'article_tts_no_job', __( 'Heise I/O hat keine Job-ID zurückgegeben.', 'article-tts' ) );
 		}
 
 		update_post_meta( $post_id, self::META_JOB_ID, $job_id );

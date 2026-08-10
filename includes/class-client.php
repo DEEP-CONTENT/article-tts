@@ -101,7 +101,7 @@ class Article_TTS_Client {
 	 */
 	public function download_audio( $job_id, $destination ) {
 		if ( ! $this->is_configured() ) {
-			return new WP_Error( 'article_tts_not_configured', __( 'Verbindung zu DC-IO ist nicht konfiguriert.', 'article-tts' ) );
+			return new WP_Error( 'article_tts_not_configured', __( 'Verbindung zu Heise I/O ist nicht konfiguriert.', 'article-tts' ) );
 		}
 
 		// Deliberately NOT download_url(). Two reasons, both found the hard way:
@@ -174,7 +174,7 @@ class Article_TTS_Client {
 	 */
 	private function request( $method, $path, $body = array(), $headers = array() ) {
 		if ( ! $this->is_configured() ) {
-			return new WP_Error( 'article_tts_not_configured', __( 'Verbindung zu DC-IO ist nicht konfiguriert.', 'article-tts' ) );
+			return new WP_Error( 'article_tts_not_configured', __( 'Verbindung zu Heise I/O ist nicht konfiguriert.', 'article-tts' ) );
 		}
 
 		$args = array(
@@ -236,7 +236,7 @@ class Article_TTS_Client {
 		if ( '' === $message ) {
 			$message = sprintf(
 				/* translators: %d: HTTP status code */
-				__( 'Unerwartete Antwort von DC-IO (HTTP %d).', 'article-tts' ),
+				__( 'Unerwartete Antwort von Heise I/O (HTTP %d).', 'article-tts' ),
 				$code
 			);
 		}
