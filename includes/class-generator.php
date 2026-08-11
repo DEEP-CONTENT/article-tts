@@ -225,6 +225,14 @@ class Article_TTS_Generator {
 			@unlink( $previous );
 		}
 
+		// Die Herkunft fällt zurück auf „im Editor erzeugt". Das ist die
+		// Gegenrichtung zu §6.5 und genauso nötig: bliebe `_article_tts_source`
+		// auf `dcio` stehen, überspränge `is_stale()` diese frisch erzeugte
+		// Fassung für immer, und eine spätere Textänderung meldete sich nie.
+		foreach ( Article_TTS_Deliveries::meta_keys() as $key ) {
+			delete_post_meta( $post_id, $key );
+		}
+
 		$now = time();
 		update_post_meta( $post_id, self::META_URL, $target['url'] );
 		update_post_meta( $post_id, self::META_PATH, $target['path'] );
@@ -264,21 +272,29 @@ class Article_TTS_Generator {
 			self::client( Article_TTS_Plugin::get_options() )->delete_job( $job_id );
 		}
 
-		foreach ( array(
-			self::META_URL,
-			self::META_PATH,
-			self::META_GENERATED,
-			self::META_VOICE,
-			self::META_HASH,
-			self::META_SIZE,
-			self::META_HASH_VERSION,
-			self::META_JOB_ID,
-			self::META_JOB_STATUS,
-			self::META_JOB_ERROR,
-			self::META_JOB_START,
-			self::META_JOB_CHUNKS,
-			self::META_JOB_DONE,
-		) as $key ) {
+		$keys = array_merge(
+			array(
+				self::META_URL,
+				self::META_PATH,
+				self::META_GENERATED,
+				self::META_VOICE,
+				self::META_HASH,
+				self::META_SIZE,
+				self::META_HASH_VERSION,
+				self::META_JOB_ID,
+				self::META_JOB_STATUS,
+				self::META_JOB_ERROR,
+				self::META_JOB_START,
+				self::META_JOB_CHUNKS,
+				self::META_JOB_DONE,
+			),
+			// Die Spuren einer Zustellung gehen mit. Bliebe die Herkunft stehen,
+			// hielte `is_stale()` die NÄCHSTE, im Editor erzeugte Fassung für eine
+			// gelieferte und verglichen würde nie wieder etwas.
+			Article_TTS_Deliveries::meta_keys()
+		);
+
+		foreach ( $keys as $key ) {
 			delete_post_meta( $post_id, $key );
 		}
 
@@ -294,7 +310,18 @@ class Article_TTS_Generator {
 	 */
 	public static function is_stale( $post_id, $post = null ) {
 		$post_id = (int) $post_id;
-		$stored  = (string) get_post_meta( $post_id, self::META_HASH, true );
+
+		// Eine aus DC-IO gelieferte Fassung hat KEINE zum Artikeltext passende
+		// Prüfsumme: sie ist an einem Text entstanden, der hier nie stand.
+		// Verglichen würde sie deshalb bei jedem Artikel und dauerhaft als
+		// veraltet gemeldet, ohne dass irgendetwas falsch wäre. Behandelt wie die
+		// Altbestände aus der Anbieter-Umstellung: nicht vergleichen, sondern in
+		// der Box sagen, woher sie kommt (§6.2).
+		if ( Article_TTS_Deliveries::is_delivered( $post_id ) ) {
+			return false;
+		}
+
+		$stored = (string) get_post_meta( $post_id, self::META_HASH, true );
 
 		if ( '' === $stored ) {
 			return false;
@@ -521,6 +548,23 @@ class Article_TTS_Generator {
 	 * @return array|WP_Error ['path','url']
 	 */
 	private static function audio_target( $post_id, $hash ) {
+		return self::audio_target_for( $post_id, substr( $hash, 0, 8 ) );
+	}
+
+	/**
+	 * Dasselbe Verzeichnis, ein anderes Namenssuffix.
+	 *
+	 * Öffentlich, weil eine ZUSTELLUNG hier ebenfalls landet und dafür kein
+	 * zweites Mal Verzeichnis, .htaccess und Fehlerbehandlung geschrieben werden
+	 * sollen. Ihr Suffix leitet sich nicht aus einer Prüfsumme ab, sondern aus
+	 * der Kennung der Zustellung. Eine gelieferte Fassung hat keine Prüfsumme
+	 * (§6.1).
+	 *
+	 * @param int    $post_id
+	 * @param string $suffix Bereits gekürzt; wandert unverändert in den Dateinamen.
+	 * @return array|WP_Error ['path','url']
+	 */
+	public static function audio_target_for( $post_id, $suffix ) {
 		$uploads = wp_upload_dir();
 		if ( ! empty( $uploads['error'] ) ) {
 			return new WP_Error( 'article_tts_upload_dir', $uploads['error'] );
@@ -533,7 +577,7 @@ class Article_TTS_Generator {
 			}
 		}
 
-		$filename = sprintf( 'post-%d-%s.mp3', (int) $post_id, substr( $hash, 0, 8 ) );
+		$filename = sprintf( 'post-%d-%s.mp3', (int) $post_id, $suffix );
 
 		return array(
 			'path' => $dir . '/' . $filename,

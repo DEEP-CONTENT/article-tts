@@ -109,18 +109,23 @@ class Article_TTS_Metabox {
 			return '<em>' . esc_html__( 'Noch keine Audio-Version generiert.', 'article-tts' ) . '</em>';
 		}
 
-		$voice  = get_post_meta( $post->ID, Article_TTS_Generator::META_VOICE, true );
-		$size   = (int) get_post_meta( $post->ID, Article_TTS_Generator::META_SIZE, true );
+		$size      = (int) get_post_meta( $post->ID, Article_TTS_Generator::META_SIZE, true );
+		$delivered = Article_TTS_Deliveries::is_delivered( $post->ID );
+
 		// The formula lives in ONE place now. It used to be repeated here, which
 		// is exactly how two copies of a hash drift apart.
 		$stale  = Article_TTS_Generator::is_stale( $post->ID, $post );
-		$legacy = (int) get_post_meta( $post->ID, Article_TTS_Generator::META_HASH_VERSION, true ) !== Article_TTS_Generator::HASH_VERSION;
+		$legacy = ! $delivered
+			&& (int) get_post_meta( $post->ID, Article_TTS_Generator::META_HASH_VERSION, true ) !== Article_TTS_Generator::HASH_VERSION;
 
 		$html = '<strong>' . esc_html__( 'Status:', 'article-tts' ) . '</strong> ';
 
 		$html .= sprintf(
-			/* translators: 1: human-readable age, 2: file size */
-			esc_html__( 'Generiert vor %1$s · %2$s', 'article-tts' ),
+			$delivered
+				/* translators: 1: human-readable age, 2: file size */
+				? esc_html__( 'Geliefert vor %1$s · %2$s', 'article-tts' )
+				/* translators: 1: human-readable age, 2: file size */
+				: esc_html__( 'Generiert vor %1$s · %2$s', 'article-tts' ),
 			// time(), NOT current_time( 'timestamp' ). META_GENERATED is written
 			// with time() — a UTC epoch — while current_time() adds the site's
 			// offset on top. On a UTC+2 site a rendition that had just finished
@@ -130,9 +135,11 @@ class Article_TTS_Metabox {
 		);
 
 		$html .= '<br><small>' . esc_html__( 'Stimme:', 'article-tts' ) . ' <strong>'
-			. esc_html( Article_TTS_Plugin::get_voice_label( $voice ) ) . '</strong></small>';
+			. esc_html( self::voice_name( $post->ID, $delivered ) ) . '</strong></small>';
 
-		if ( $legacy ) {
+		if ( $delivered ) {
+			$html .= '<br><span class="article-tts-note">' . esc_html( self::delivery_note( $post->ID ) ) . '</span>';
+		} elseif ( $legacy ) {
 			$html .= '<br><span class="article-tts-note">'
 				. esc_html__( 'Diese Fassung stammt aus der früheren Anbindung. Sie bleibt spielbar; eine neue Vertonung ist nur nötig, wenn sich der Text geändert hat.', 'article-tts' )
 				. '</span>';
@@ -143,6 +150,60 @@ class Article_TTS_Metabox {
 		}
 
 		return $html;
+	}
+
+	/**
+	 * Der Stimmenname, aus der Quelle, die ihn tatsächlich hat.
+	 *
+	 * Eine erzeugte Fassung merkt sich eine Stimmen-KENNUNG und lässt sie durch
+	 * den Katalog auflösen. Eine gelieferte bringt einen NAMEN mit und keine
+	 * Kennung. Durch den Katalog geschlagen ergäbe er „Unbekannte Stimme
+	 * (Otto)", also eine Warnung über etwas völlig Normales.
+	 *
+	 * @param int  $post_id
+	 * @param bool $delivered
+	 * @return string
+	 */
+	private static function voice_name( $post_id, $delivered ) {
+		if ( $delivered ) {
+			$label = (string) get_post_meta( $post_id, Article_TTS_Deliveries::META_VOICE_LABEL, true );
+
+			return '' !== $label ? $label : __( 'Keine Angabe', 'article-tts' );
+		}
+
+		return Article_TTS_Plugin::get_voice_label(
+			get_post_meta( $post_id, Article_TTS_Generator::META_VOICE, true )
+		);
+	}
+
+	/**
+	 * Was an einer gelieferten Fassung gesagt werden muss.
+	 *
+	 * ZWEI SÄTZE, und der zweite nur, wenn er zutrifft. Der erste erklärt, warum
+	 * hier nie „Artikel wurde verändert" steht: diese Fassung folgt dem
+	 * Artikeltext nicht (§6.2). Der zweite ist der wichtigere: Hat die
+	 * Zustellung eine im Editor erzeugte Fassung ersetzt, hat der Beitrag eine
+	 * Eigenschaft VERLOREN, und das darf nicht unbemerkt umschlagen (§6.5).
+	 *
+	 * @param int $post_id
+	 * @return string
+	 */
+	private static function delivery_note( $post_id ) {
+		$note = __( 'Diese Fassung kommt aus DC-IO und folgt nicht dem Artikeltext.', 'article-tts' );
+
+		$replaced = (int) get_post_meta( $post_id, Article_TTS_Deliveries::META_REPLACED_AT, true );
+
+		if ( $replaced ) {
+			$note .= ' ' . sprintf(
+				/* translators: %s: date the delivery replaced a generated version */
+				__( 'Sie hat am %s eine im Editor erzeugte Fassung ersetzt.', 'article-tts' ),
+				// date_i18n() und nicht date(): der Zeitstempel ist eine
+				// UTC-Epoche, die Anzeige gehört in die Zeitzone der Seite.
+				date_i18n( 'd.m.Y', $replaced )
+			);
+		}
+
+		return $note;
 	}
 
 	/**

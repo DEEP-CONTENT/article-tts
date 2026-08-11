@@ -84,6 +84,45 @@ class Article_TTS_Client {
 		return $this->request( 'GET', '/api/v1/tts/voices' );
 	}
 
+	/**
+	 * Der Posteingang: was DC-IO für diesen Mandanten zuzustellen hat.
+	 *
+	 * Die Liste ist MANDANTENWEIT, nicht seitenbezogen: DC-IO weiß gar nicht,
+	 * welche Installation fragt. Was davon diese Seite angeht, entscheidet sie
+	 * selbst am Host in `targetUrl`, und genau deshalb steht der Host schon in
+	 * der Liste: aussortiert wird, BEVOR etwas heruntergeladen wird.
+	 *
+	 * @return array|WP_Error `['success' => true, 'items' => [...]]`
+	 */
+	public function list_deliveries() {
+		return $this->request( 'GET', '/api/v1/tts/deliveries?status=pending' );
+	}
+
+	/**
+	 * Das Ergebnis melden. Erst das nimmt die Zustellung aus dem Posteingang.
+	 *
+	 * NUR ÜBER DIE EIGENE DOMAIN AUFRUFEN. Eine Meldung über eine fremde
+	 * Zustellung nimmt sie dem, für den sie bestimmt war. Wer zuerst fragt,
+	 * gewänne das Recht, die Zustellung eines anderen zu zerstören. Der
+	 * Hostvergleich in Article_TTS_Deliveries ist das, was diesen Aufruf
+	 * absichert; hier steht keine zweite Prüfung, weil eine zweite Prüfung an
+	 * der falschen Stelle nur die erste unscheinbar macht.
+	 *
+	 * @param string $delivery_id
+	 * @param array  $payload `['externalId' => '123']` oder
+	 *                        `['error' => true, 'errorCategory' => '...']`.
+	 * @return array|WP_Error
+	 */
+	public function confirm_delivery( $delivery_id, $payload ) {
+		$payload['siteUrl'] = get_site_url();
+
+		return $this->request(
+			'POST',
+			'/api/v1/tts/deliveries/' . rawurlencode( $delivery_id ) . '/confirm',
+			$payload
+		);
+	}
+
 	public function list_models() {
 		return $this->request( 'GET', '/api/v1/tts/models' );
 	}
@@ -100,6 +139,36 @@ class Article_TTS_Client {
 	 * @return int|WP_Error Bytes written.
 	 */
 	public function download_audio( $job_id, $destination ) {
+		return $this->stream_to_file(
+			'/api/v1/tts/articles/' . rawurlencode( $job_id ) . '/audio',
+			$destination
+		);
+	}
+
+	/**
+	 * Dieselbe Datei, anderer Ursprung: die Bytes einer Zustellung.
+	 *
+	 * Bewusst über denselben Weg wie {@see download_audio()}: Bearer-Token,
+	 * `stream`, Statusprüfung, atomarer Umzug. Die Spec nennt das ausdrücklich
+	 * (§6.1), und die beiden Fallen dahinter stehen unten in stream_to_file().
+	 *
+	 * @param string $delivery_id
+	 * @param string $destination Absoluter Zielpfad.
+	 * @return int|WP_Error Geschriebene Bytes.
+	 */
+	public function download_delivery_audio( $delivery_id, $destination ) {
+		return $this->stream_to_file(
+			'/api/v1/tts/deliveries/' . rawurlencode( $delivery_id ) . '/audio',
+			$destination
+		);
+	}
+
+	/**
+	 * @param string $path        Pfad unterhalb der Instanz-Adresse.
+	 * @param string $destination Absoluter Zielpfad.
+	 * @return int|WP_Error Geschriebene Bytes.
+	 */
+	private function stream_to_file( $path, $destination ) {
 		if ( ! $this->is_configured() ) {
 			return new WP_Error( 'article_tts_not_configured', __( 'Verbindung zu Heise I/O ist nicht konfiguriert.', 'article-tts' ) );
 		}
@@ -121,7 +190,7 @@ class Article_TTS_Client {
 		}
 
 		$response = wp_remote_get(
-			$this->base_url . '/api/v1/tts/articles/' . rawurlencode( $job_id ) . '/audio',
+			$this->base_url . $path,
 			array(
 				'timeout'  => self::DOWNLOAD_TIMEOUT,
 				'stream'   => true,

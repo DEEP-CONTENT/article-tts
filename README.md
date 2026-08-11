@@ -13,6 +13,36 @@ Eigenständiges WordPress-Plugin, das Artikel-Inhalt (Titel + Excerpt + Body) ü
 - Funktioniert mit jedem Post-Type (Standard: `post`, weitere in den Settings aktivierbar)
 - Sichtbarkeit des Players pro Rolle steuerbar (inkl. Gäste); leer = alle Besucher
 - Nutzt ausschließlich WordPress-Core-APIs — keine Theme-Abhängigkeit
+- Nimmt Vertonungen entgegen, die in DC-IO erzeugt und an einen Artikel geschickt wurden
+  (siehe unten): ohne Einrichtung, ohne offenen Eingang
+
+## Zustellung aus DC-IO
+
+Neben der Vertonung, die hier ausgelöst wird, gibt es die Gegenrichtung: Jemand erzeugt in
+DC-IO eine Vertonung, fügt dort die Adresse eines Artikels ein, und die Datei hängt kurz
+darauf an diesem Artikel.
+
+**Einzurichten ist dafür nichts.** Es reicht die Adresse und der Token, die ohnehin in den
+Einstellungen stehen. Der Fünf-Minuten-Cron, der laufende Vertonungen verfolgt, fragt danach
+noch, ob etwas bereitliegt.
+
+Drei Dinge, die im Betrieb auffallen können:
+
+- **Bis zu fünf Minuten Verzögerung.** DC-IO schiebt nichts hierher; das Plugin holt ab.
+  Das ist Absicht: So braucht es keinen von außen erreichbaren Eingang auf einer
+  Redaktionsseite.
+- **Eine Zustellung überschreibt eine vorhandene Vertonung**, ohne Rückfrage. Es sitzt
+  niemand am Bildschirm, den man fragen könnte. Eine laufende Vertonung wird dabei nie
+  unterbrochen; die Zustellung wartet auf den nächsten Durchgang.
+- **Eine gelieferte Fassung folgt dem Artikeltext nicht.** Sie stammt aus einem Text, der in
+  WordPress nie stand, und wird deshalb nicht als „veraltet" gemeldet, wenn der Artikel sich
+  ändert. Die Audio-Box im Editor sagt, woher die Fassung kommt und ob sie eine erzeugte
+  ersetzt hat.
+
+Bei einem **unveröffentlichten** Artikel muss in DC-IO die Vorschau-Adresse oder die Adresse
+aus dem Editor eingefügt werden. Den schönen Permalink gibt es dann noch nicht.
+
+Der Protokollteil steht in `Laravel-DC-IO/docs/api/tts-deliveries-endpoint.md`.
 
 ## Installation
 

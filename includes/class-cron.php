@@ -75,12 +75,22 @@ class Article_TTS_Cron {
 	}
 
 	/**
-	 * One tick: advance every rendition that is still running.
+	 * One tick: advance every rendition that is still running, then collect
+	 * whatever DC-IO has sent this way.
+	 *
+	 * DIE REIHENFOLGE IST NICHT BELIEBIG. Zuerst laufende Vertonungen, dann der
+	 * Posteingang: Eine Zustellung, die auf einen Beitrag mit laufender
+	 * Vertonung trifft, bleibt liegen (§6.5). Wird die Vertonung in DIESEM
+	 * Durchgang fertig, ist sie danach terminal, und die Zustellung kann im
+	 * selben Durchgang übernommen werden statt fünf Minuten zu warten.
+	 * Andersherum liefe sie zwangsläufig in die Verzögerung.
 	 */
 	public function run() {
 		foreach ( $this->pending_posts() as $post_id ) {
 			$this->advance( (int) $post_id );
 		}
+
+		Article_TTS_Deliveries::run();
 	}
 
 	/**
