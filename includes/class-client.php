@@ -183,6 +183,22 @@ class Article_TTS_Client {
 		//    the unrestricted client, so an instance inside a company network
 		//    would submit fine and then fail only on the download — the most
 		//    confusing shape that failure could take.
+		// wp_tempnam() wohnt in wp-admin/includes/file.php und ist im FRONTEND
+		// nicht geladen.
+		//
+		// Das ist keine Kleinigkeit, sondern war ein Fatal an der übelsten
+		// Stelle: Der Cron läuft über einen gewöhnlichen Seitenaufruf, also im
+		// Frontend. Dort riss "Call to undefined function wp_tempnam()" den
+		// ganzen Rückruf ab — mitsamt dem Abholen fertiger Vertonungen und dem
+		// Posteingang. Nach aussen sah das aus, als täte der Cron nichts.
+		//
+		// Aufgefallen ist es nie, weil jeder Weg, den ich geprüft hatte, im
+		// Admin oder in WP-CLI lief, und dort ist die Datei geladen: der Knopf
+		// im Editor über admin-ajax, jeder Test über wp eval.
+		if ( ! function_exists( 'wp_tempnam' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+
 		$temp = wp_tempnam( 'article-tts' );
 
 		if ( ! $temp ) {
