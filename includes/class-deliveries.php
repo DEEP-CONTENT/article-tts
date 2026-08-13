@@ -138,6 +138,93 @@ class Article_TTS_Deliveries {
 	}
 
 	/**
+	 * Auf Zuruf nachsehen, ob für GENAU DIESEN Beitrag etwas bereitliegt.
+	 *
+	 * Das ist der Knopf „Jetzt von Heise I/O holen". Er löst dasselbe wie der
+	 * Cron, bezahlt es aber anders: Ein pollender Editor kostet dauernd, egal ob
+	 * etwas kommt, dieser Weg genau dann, wenn ein Mensch danach fragt. Wer eben
+	 * aus DC-IO geschickt hat, weiss ja, dass etwas unterwegs ist.
+	 *
+	 * Antwortet mit einer von vier Lagen, und die Unterscheidung ist der Punkt:
+	 *
+	 *   delivered   übernommen, das Audio hängt am Beitrag
+	 *   composing   liegt, wird aber noch zusammengefügt
+	 *   none        für diesen Beitrag liegt nichts bereit
+	 *   deferred    an diesem Beitrag läuft gerade eine eigene Vertonung
+	 *
+	 * `composing` gegen `none` abzugrenzen ist kein Feinschliff. Ohne das meldet
+	 * der Knopf „nichts bereitliegend", während in DC-IO „wird zusammengefügt"
+	 * steht: zwei Wahrheiten über dieselbe Sache, und die falsche steht dort, wo
+	 * jemand gerade wartet.
+	 *
+	 * @param int                $post_id
+	 * @param Article_TTS_Client $client
+	 * @return array|WP_Error ['state' => …, 'post_id' => int]
+	 */
+	public static function fetch_for( $post_id, $client = null ) {
+		$post_id = (int) $post_id;
+
+		if ( null === $client ) {
+			$client = self::client( Article_TTS_Plugin::get_options() );
+		}
+
+		if ( ! $client->is_configured() ) {
+			return new WP_Error(
+				'article_tts_not_configured',
+				__( 'Verbindung zu Heise I/O ist nicht konfiguriert.', 'article-tts' )
+			);
+		}
+
+		$response = $client->list_deliveries();
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$items = isset( $response['items'] ) && is_array( $response['items'] ) ? $response['items'] : array();
+
+		foreach ( $items as $item ) {
+			if ( ! is_array( $item ) || empty( $item['deliveryId'] ) ) {
+				continue;
+			}
+
+			// Wie im Cron: erst der Host, dann alles andere.
+			if ( ! self::host_matches( isset( $item['targetUrl'] ) ? $item['targetUrl'] : '' ) ) {
+				continue;
+			}
+
+			$target = self::resolve_target( (string) $item['targetUrl'] );
+
+			if ( is_wp_error( $target ) || (int) $target !== $post_id ) {
+				// Gilt einem anderen Beitrag dieser Installation, oder die
+				// Adresse zeigt ins Leere. Beides ist Sache des Cron-Durchgangs,
+				// nicht dieses Knopfes: Er ist für DIESEN Beitrag gedrückt
+				// worden und soll nicht nebenbei fremde Zustellungen abhaken.
+				continue;
+			}
+
+			// `collectable` kommt aus dem Posteingang und fehlt, solange die
+			// Gegenseite es noch nicht mitschickt. Fehlt es, gilt der Eintrag
+			// als abholbar, denn genau das listete der Posteingang bisher
+			// ausschliesslich.
+			$collectable = ! array_key_exists( 'collectable', $item ) || (bool) $item['collectable'];
+
+			if ( ! $collectable ) {
+				return array( 'state' => 'composing', 'post_id' => $post_id );
+			}
+
+			$outcome = self::take( $client, $item );
+
+			return array(
+				'state'   => 'deferred' === $outcome ? 'deferred' : $outcome,
+				'post_id' => $post_id,
+			);
+		}
+
+		return array( 'state' => 'none', 'post_id' => $post_id );
+	}
+
+	/**
 	 * Eine Zustellung übernehmen: Adresse auflösen, Datei holen, anhängen, melden.
 	 *
 	 * @param Article_TTS_Client $client

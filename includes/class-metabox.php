@@ -84,6 +84,11 @@ class Article_TTS_Metabox {
 					'deleted'       => __( 'Audio gelöscht.', 'article-tts' ),
 					'generate'      => __( 'Audio generieren', 'article-tts' ),
 					'regenerate'    => __( 'Audio neu generieren', 'article-tts' ),
+					'fetching'      => __( 'Sehe bei Heise I/O nach…', 'article-tts' ),
+					'fetchNone'     => __( 'Für diesen Artikel liegt nichts bereit.', 'article-tts' ),
+					'fetchComposing' => __( 'Die Vertonung wird noch zusammengefügt. Gleich noch einmal versuchen.', 'article-tts' ),
+					'fetchDeferred' => __( 'An diesem Artikel läuft gerade eine eigene Vertonung. Danach wird die Zustellung übernommen.', 'article-tts' ),
+					'fetchTaken'    => __( 'Vertonung aus Heise I/O übernommen.', 'article-tts' ),
 					/* translators: %s: technical reason, e.g. "HTTP 412" */
 					'audioBlocked'  => __( 'Das Audio wurde erzeugt, ließ sich hier aber nicht laden (%s). Nach dem Speichern und Neuladen der Seite ist es abspielbar.', 'article-tts' ),
 				),
@@ -322,6 +327,16 @@ class Article_TTS_Metabox {
 				</button>
 				<?php if ( $generated ) : ?>
 					<button type="button" class="button" id="article-tts-delete"><?php esc_html_e( 'Löschen', 'article-tts' ); ?></button>
+				<?php endif; ?>
+				<?php if ( $api_ready && ! $unsaved ) : ?>
+					<?php
+					// Fragt den Posteingang bei Heise I/O sofort ab, statt auf den
+					// Cron zu warten. Ohne gespeicherten Beitrag gibt es keine
+					// Adresse, die eine Zustellung treffen könnte.
+					?>
+					<button type="button" class="button" id="article-tts-fetch">
+						<?php esc_html_e( 'Jetzt von Heise I/O holen', 'article-tts' ); ?>
+					</button>
 				<?php endif; ?>
 			</p>
 			<p class="article-tts-feedback" aria-live="polite"></p>

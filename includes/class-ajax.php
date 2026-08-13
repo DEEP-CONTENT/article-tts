@@ -25,6 +25,15 @@ class Article_TTS_Ajax {
 	 */
 	const LOCK_SECONDS = 300;
 
+	/**
+	 * Wie lange der Abhol-Knopf gesperrt bleibt.
+	 *
+	 * Kurz genug, dass ein zweiter Versuch nicht nervt, lang genug, dass
+	 * Doppelklicks und mehrere offene Editoren nicht zu einer Anfragewelle
+	 * werden.
+	 */
+	const FETCH_LOCK_SECONDS = 15;
+
 	private static $instance = null;
 
 	public static function get_instance() {
@@ -38,6 +47,7 @@ class Article_TTS_Ajax {
 		add_action( 'wp_ajax_article_tts_generate', array( $this, 'generate' ) );
 		add_action( 'wp_ajax_article_tts_status', array( $this, 'status' ) );
 		add_action( 'wp_ajax_article_tts_delete', array( $this, 'delete' ) );
+		add_action( 'wp_ajax_article_tts_fetch_delivery', array( $this, 'fetch_delivery' ) );
 	}
 
 	private function check_nonce() {
@@ -156,6 +166,51 @@ class Article_TTS_Ajax {
 				// Rendered here rather than assembled in JavaScript: the box shows
 				// this line on page load too, and one wording is worth more than
 				// two implementations of it.
+				'statusHtml' => Article_TTS_Metabox::status_html( get_post( $post_id ) ),
+			)
+		);
+	}
+
+	/**
+	 * Der Knopf „Jetzt von Heise I/O holen".
+	 *
+	 * Fragt den Posteingang sofort ab, statt auf den Cron zu warten. Die kurze
+	 * Sperre ist kein Zierrat: Ohne sie werden aus Doppelklicks und drei offenen
+	 * Editoren Lastspitzen auf einer Schnittstelle, die 240 Abfragen je Minute
+	 * erlaubt.
+	 */
+	public function fetch_delivery() {
+		$this->check_nonce();
+		$post_id = $this->authorised_post_id();
+
+		if ( ! $post_id ) {
+			wp_send_json_error( array( 'message' => __( 'Keine Berechtigung.', 'article-tts' ) ), 403 );
+		}
+
+		$lock = 'article_tts_fetch_' . $post_id;
+
+		if ( get_transient( $lock ) ) {
+			wp_send_json_error(
+				array( 'message' => __( 'Gerade eben schon nachgesehen. Bitte einen Moment warten.', 'article-tts' ) ),
+				429
+			);
+		}
+
+		set_transient( $lock, 1, self::FETCH_LOCK_SECONDS );
+
+		$result = Article_TTS_Deliveries::fetch_for( $post_id );
+
+		if ( is_wp_error( $result ) ) {
+			// Die Sperre sofort lösen: Ein Fehler auf der Gegenseite ist kein
+			// Grund, den Redakteur eine halbe Minute warten zu lassen.
+			delete_transient( $lock );
+			wp_send_json_error( array( 'message' => $result->get_error_message() ), 502 );
+		}
+
+		wp_send_json_success(
+			array(
+				'state'      => $result['state'],
+				'url'        => (string) get_post_meta( $post_id, Article_TTS_Generator::META_URL, true ),
 				'statusHtml' => Article_TTS_Metabox::status_html( get_post( $post_id ) ),
 			)
 		);

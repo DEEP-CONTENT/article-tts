@@ -260,6 +260,66 @@
 		});
 	});
 
+	// Der Knopf „Jetzt von Heise I/O holen".
+	//
+	// Fragt den Posteingang sofort ab, statt auf den Cron zu warten. Vier Lagen,
+	// und sie auseinanderzuhalten ist der ganze Sinn: „nichts da" und „wird noch
+	// zusammengefügt" sehen für den Wartenden gleich aus, verlangen aber
+	// Verschiedenes — einmal die Adresse prüfen, einmal nur Geduld.
+	$(document).on('click', '#article-tts-fetch', function (e) {
+		e.preventDefault();
+
+		var $box = $(this).closest('.article-tts-metabox');
+		var $btn = $(this);
+
+		$btn.prop('disabled', true);
+		feedback($box, articleTTS.i18n.fetching, false);
+
+		$.post(articleTTS.ajaxUrl, {
+			action: 'article_tts_fetch_delivery',
+			nonce: articleTTS.nonce,
+			post_id: $box.data('post-id')
+		})
+			.done(function (res) {
+				$btn.prop('disabled', false);
+
+				if (!res || !res.success) {
+					feedback($box, articleTTS.i18n.failed, true);
+					return;
+				}
+
+				var d = res.data;
+				setStatus($box, d.statusHtml);
+
+				switch (d.state) {
+					case 'delivered':
+						feedback($box, articleTTS.i18n.fetchTaken, false);
+						showAudio($box, d.url);
+						break;
+					case 'composing':
+						feedback($box, articleTTS.i18n.fetchComposing, false);
+						break;
+					case 'deferred':
+						feedback($box, articleTTS.i18n.fetchDeferred, false);
+						break;
+					case 'none':
+						feedback($box, articleTTS.i18n.fetchNone, false);
+						break;
+					default:
+						// rejected oder failed: der Grund steht in DC-IO, hier
+						// waere jede Vermutung schlechter als die Wahrheit.
+						feedback($box, articleTTS.i18n.failed, true);
+				}
+			})
+			.fail(function (xhr) {
+				$btn.prop('disabled', false);
+				var m = (xhr.responseJSON && xhr.responseJSON.data && xhr.responseJSON.data.message)
+					? xhr.responseJSON.data.message
+					: (xhr.statusText || 'Request failed');
+				feedback($box, m, true);
+			});
+	});
+
 	$(document).on('click', '#article-tts-delete', function (e) {
 		e.preventDefault();
 		if (!window.confirm(articleTTS.i18n.confirmDelete)) {
