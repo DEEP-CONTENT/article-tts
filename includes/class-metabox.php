@@ -301,7 +301,14 @@ class Article_TTS_Metabox {
 			<?php endif; ?>
 
 			<?php if ( $url ) : ?>
-				<audio controls preload="metadata" src="<?php echo esc_url( $url ); ?>" style="width:100%;"></audio>
+				<?php
+					// Die Adresse steht zusaetzlich als Datenattribut, weil der
+					// Player nach dem Laden eine blob:-Quelle traegt (siehe
+					// admin.js). Ohne sie liesse sich nicht feststellen, ob die
+					// gezeigte Datei noch die aktuelle ist.
+					?>
+					<audio controls preload="metadata" src="<?php echo esc_url( $url ); ?>"
+						data-source-url="<?php echo esc_url( $url ); ?>" style="width:100%;"></audio>
 			<?php endif; ?>
 
 			<p>

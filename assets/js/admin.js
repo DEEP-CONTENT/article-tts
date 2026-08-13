@@ -75,6 +75,10 @@
 		var $alt = $box.find('audio');
 
 		var $player = $('<audio controls preload="metadata" style="width:100%;"></audio>');
+		// Die ungeschminkte Adresse mitfuehren, damit spaeter erkennbar ist,
+		// welche Datei hier eigentlich haengt. Die src ist danach eine
+		// blob:-Adresse und taugt dafuer nicht.
+		$player.attr('data-source-url', url);
 
 		if ($alt.length) {
 			// Das alte erst leeren und entladen, sonst laedt es im Hintergrund
@@ -291,10 +295,22 @@
 				var d = res.data;
 				setStatus($box, d.statusHtml);
 
+				// Der Player wird IMMER nachgezogen, nicht nur bei 'delivered'.
+				//
+				// Holt der Cron die Zustellung ab, waehrend der Editor offen
+				// steht, meldet dieser Knopf danach voellig zu Recht 'none' —
+				// die Box zeigte dann aber weiter die alte Datei, und der
+				// Redakteur liest "nichts bereitliegend", waehrend die neue
+				// Fassung laengst am Beitrag haengt.
+				var gezeigt = $box.find('audio').attr('data-source-url') || '';
+
+				if (d.url && d.url !== gezeigt) {
+					showAudio($box, d.url);
+				}
+
 				switch (d.state) {
 					case 'delivered':
 						feedback($box, articleTTS.i18n.fetchTaken, false);
-						showAudio($box, d.url);
 						break;
 					case 'composing':
 						feedback($box, articleTTS.i18n.fetchComposing, false);
