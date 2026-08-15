@@ -86,6 +86,15 @@ class Article_TTS_Metabox {
 					'regenerate'    => __( 'Audio neu generieren', 'article-tts' ),
 					'fetching'      => __( 'Sehe bei Heise I/O nach…', 'article-tts' ),
 					'fetchNone'     => __( 'Für diesen Artikel liegt nichts bereit.', 'article-tts' ),
+					// Derselbe Fund, andere Lage: nichts im Posteingang, aber am
+					// Beitrag hängt bereits Audio. „Liegt nichts bereit" liest sich
+					// dann wie ein Fehlschlag, obwohl alles in Ordnung ist.
+					//
+					// Bewusst eine Aussage über den POSTEINGANG statt über Heise I/O:
+					// ob dort jemand das Projekt geändert und noch nicht gesendet hat,
+					// weiß dieses Plugin nicht. „Du hast die aktuellste Fassung" wäre
+					// ein Versprechen, das es nicht halten kann.
+					'fetchNoneHave' => __( 'Nichts Neues. Die vorhandene Fassung ist die zuletzt gelieferte.', 'article-tts' ),
 					'fetchComposing' => __( 'Die Vertonung wird noch zusammengefügt. Gleich noch einmal versuchen.', 'article-tts' ),
 					'fetchDeferred' => __( 'An diesem Artikel läuft gerade eine eigene Vertonung. Danach wird die Zustellung übernommen.', 'article-tts' ),
 					'fetchTaken'    => __( 'Vertonung aus Heise I/O übernommen.', 'article-tts' ),

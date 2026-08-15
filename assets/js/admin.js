@@ -319,7 +319,24 @@
 						feedback($box, articleTTS.i18n.fetchDeferred, false);
 						break;
 					case 'none':
-						feedback($box, articleTTS.i18n.fetchNone, false);
+						// 'none' heisst zweierlei, und nur eines davon ist eine
+						// schlechte Nachricht: Es wurde nie etwas geschickt — oder
+						// es wurde geschickt und laengst abgeholt, vom Cron oder
+						// von einem frueheren Klick. Im zweiten Fall haengt die
+						// aktuelle Datei am Beitrag, und "liegt nichts bereit"
+						// liest sich wie ein Fehlschlag, obwohl alles stimmt.
+						//
+						// Dieselbe Trennung, die weiter oben schon 'composing' von
+						// 'none' unterscheidet: zwei Wahrheiten ueber dieselbe
+						// Sache, und die falsche stand dort, wo jemand nachsieht.
+						//
+						// `d.url` ist das Post-Meta des Beitrags und kommt bei
+						// JEDEM Zustand mit, nicht nur bei 'delivered'.
+						feedback(
+							$box,
+							d.url ? articleTTS.i18n.fetchNoneHave : articleTTS.i18n.fetchNone,
+							false
+						);
 						break;
 					default:
 						// rejected oder failed: der Grund steht in DC-IO, hier
