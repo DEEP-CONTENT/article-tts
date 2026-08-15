@@ -51,6 +51,19 @@ class Article_TTS_Deliveries {
 	const META_VOICE_LABEL = '_article_tts_source_voice';
 
 	/**
+	 * Der Name des Projekts in Heise I/O, aus dem diese Fassung stammt.
+	 *
+	 * Sagt einem Redakteur mehr als der Dateiname, der vorher an dieser Stelle
+	 * stand: `post-43271-dS1ZW35PW.mp3` benennt nur, wo die Datei liegt, „Hallo
+	 * Test" benennt, WORAUS sie kommt — und ist damit das, womit sich die Fassung
+	 * drüben im Editor wiederfinden lässt.
+	 *
+	 * Nur an einer gelieferten Fassung sinnvoll. Eine selbst erzeugte hat kein
+	 * Projekt, sie hat den Artikel.
+	 */
+	const META_PROJECT = '_article_tts_source_project';
+
+	/**
 	 * Wann eine gelieferte Fassung eine im Editor erzeugte ersetzt hat.
 	 *
 	 * Der Beitrag verliert dabei eine Eigenschaft: eine erzeugte Fassung folgt
@@ -484,6 +497,16 @@ class Article_TTS_Deliveries {
 			delete_post_meta( $post_id, self::META_VOICE_LABEL );
 		}
 
+		// Wie bei der Stimme: gesetzt ODER geloescht, nie stehengelassen. Sonst
+		// traegt eine zweite Zustellung ohne Projektnamen den der ersten weiter,
+		// und die Box benennt ein Projekt, aus dem die gezeigte Datei nicht kommt.
+		$project = isset( $item['title'] ) ? trim( (string) $item['title'] ) : '';
+		if ( '' !== $project ) {
+			update_post_meta( $post_id, self::META_PROJECT, $project );
+		} else {
+			delete_post_meta( $post_id, self::META_PROJECT );
+		}
+
 		if ( $replaced_generated ) {
 			update_post_meta( $post_id, self::META_REPLACED_AT, time() );
 		}
@@ -516,6 +539,7 @@ class Article_TTS_Deliveries {
 			self::META_SOURCE,
 			self::META_DELIVERY,
 			self::META_VOICE_LABEL,
+			self::META_PROJECT,
 			self::META_REPLACED_AT,
 		);
 	}

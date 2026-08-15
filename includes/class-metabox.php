@@ -151,11 +151,11 @@ class Article_TTS_Metabox {
 		$html .= '<br><small>' . esc_html__( 'Stimme:', 'article-tts' ) . ' <strong>'
 			. esc_html( self::voice_name( $post->ID, $delivered ) ) . '</strong></small>';
 
-		$filename = self::audio_filename( $post->ID );
+		$project = (string) get_post_meta( $post->ID, Article_TTS_Deliveries::META_PROJECT, true );
 
-		if ( '' !== $filename ) {
-			$html .= '<br><small>' . esc_html__( 'Datei:', 'article-tts' ) . ' <code>'
-				. esc_html( $filename ) . '</code></small>';
+		if ( '' !== $project ) {
+			$html .= '<br><small>' . esc_html__( 'Projekt:', 'article-tts' ) . ' <strong>'
+				. esc_html( $project ) . '</strong></small>';
 		}
 
 		if ( $delivered ) {
@@ -171,31 +171,6 @@ class Article_TTS_Metabox {
 		}
 
 		return $html;
-	}
-
-	/**
-	 * Der blosse Dateiname der abgelegten Audiodatei.
-	 *
-	 * Aus derselben Meta wie der Player, und deshalb fuer beide Herkuenfte
-	 * richtig: eine gelieferte Fassung schreibt `META_URL` genauso wie eine
-	 * selbst erzeugte.
-	 *
-	 * Ueber `parse_url()` statt direkt `basename()`: an einer Adresse kann eine
-	 * Abfrage haengen (`?ver=`), und die gehoert nicht in einen Dateinamen.
-	 *
-	 * @param int $post_id
-	 * @return string Leer, wenn keine Adresse hinterlegt ist.
-	 */
-	private static function audio_filename( $post_id ) {
-		$url = (string) get_post_meta( $post_id, Article_TTS_Generator::META_URL, true );
-
-		if ( '' === $url ) {
-			return '';
-		}
-
-		$path = (string) wp_parse_url( $url, PHP_URL_PATH );
-
-		return '' === $path ? '' : basename( $path );
 	}
 
 	/**
