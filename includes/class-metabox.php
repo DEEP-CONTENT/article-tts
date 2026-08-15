@@ -151,6 +151,13 @@ class Article_TTS_Metabox {
 		$html .= '<br><small>' . esc_html__( 'Stimme:', 'article-tts' ) . ' <strong>'
 			. esc_html( self::voice_name( $post->ID, $delivered ) ) . '</strong></small>';
 
+		$filename = self::audio_filename( $post->ID );
+
+		if ( '' !== $filename ) {
+			$html .= '<br><small>' . esc_html__( 'Datei:', 'article-tts' ) . ' <code>'
+				. esc_html( $filename ) . '</code></small>';
+		}
+
 		if ( $delivered ) {
 			$html .= '<br><span class="article-tts-note">' . esc_html( self::delivery_note( $post->ID ) ) . '</span>';
 		} elseif ( $legacy ) {
@@ -164,6 +171,31 @@ class Article_TTS_Metabox {
 		}
 
 		return $html;
+	}
+
+	/**
+	 * Der blosse Dateiname der abgelegten Audiodatei.
+	 *
+	 * Aus derselben Meta wie der Player, und deshalb fuer beide Herkuenfte
+	 * richtig: eine gelieferte Fassung schreibt `META_URL` genauso wie eine
+	 * selbst erzeugte.
+	 *
+	 * Ueber `parse_url()` statt direkt `basename()`: an einer Adresse kann eine
+	 * Abfrage haengen (`?ver=`), und die gehoert nicht in einen Dateinamen.
+	 *
+	 * @param int $post_id
+	 * @return string Leer, wenn keine Adresse hinterlegt ist.
+	 */
+	private static function audio_filename( $post_id ) {
+		$url = (string) get_post_meta( $post_id, Article_TTS_Generator::META_URL, true );
+
+		if ( '' === $url ) {
+			return '';
+		}
+
+		$path = (string) wp_parse_url( $url, PHP_URL_PATH );
+
+		return '' === $path ? '' : basename( $path );
 	}
 
 	/**
@@ -203,7 +235,11 @@ class Article_TTS_Metabox {
 	 * @return string
 	 */
 	private static function delivery_note( $post_id ) {
-		$note = __( 'Diese Fassung kommt aus DC-IO und folgt nicht dem Artikeltext.', 'article-tts' );
+		// „Heise I/O", wie überall sonst in dieser Oberfläche („Sehe bei Heise I/O
+		// nach…", „Vertonung aus Heise I/O übernommen."). „DC-IO" ist der interne
+		// Name des Dienstes und stand hier als einziger sichtbarer Rest davon —
+		// für einen Redakteur zwei Namen für dieselbe Sache.
+		$note = __( 'Diese Fassung kommt aus Heise I/O und folgt nicht dem Artikeltext.', 'article-tts' );
 
 		$replaced = (int) get_post_meta( $post_id, Article_TTS_Deliveries::META_REPLACED_AT, true );
 
