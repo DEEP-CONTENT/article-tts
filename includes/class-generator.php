@@ -97,7 +97,22 @@ class Article_TTS_Generator {
 			);
 		}
 
-		$text = self::normalize( self::build_text( $post, $options ) );
+		// GEREINIGT VOR DEM NORMALISIEREN, und nicht darin. `normalize()` ist der
+		// zeichengleiche Zwilling von Laravels `ArticleText::normalize()`, und das
+		// muss so bleiben — beide rechnen den Hash, und schon ein Zeichen
+		// Unterschied wird drueben zu „400 content_hash_mismatch".
+		//
+		// Ohne diesen Schritt genuegte EIN ungueltiges Byte — aus einem alten
+		// Import, einer Latin-1-Einfuegung — um den ganzen Artikel zu
+		// verschlucken: `preg_replace` mit `/u` gibt darauf NULL zurueck, der
+		// `(string)`-Cast macht daraus '', und die Meldung unten sagte dann „Der
+		// zusammengesetzte Artikeltext ist leer." Ein Redakteur schaut daraufhin
+		// in einen Artikel voller Text und findet nichts, was leer waere.
+		//
+		// Die Paritaet bleibt unberuehrt: gesendet wird der bereits gereinigte und
+		// normalisierte Text, die Gegenseite normalisiert also dasselbe noch
+		// einmal — und das ist idempotent.
+		$text = self::normalize( wp_check_invalid_utf8( self::build_text( $post, $options ), true ) );
 		if ( '' === $text ) {
 			return new WP_Error( 'article_tts_empty_text', __( 'Der zusammengesetzte Artikeltext ist leer.', 'article-tts' ) );
 		}
