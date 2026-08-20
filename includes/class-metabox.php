@@ -200,11 +200,12 @@ class Article_TTS_Metabox {
 	/**
 	 * Was an einer gelieferten Fassung gesagt werden muss.
 	 *
-	 * ZWEI SÄTZE, und der zweite nur, wenn er zutrifft. Der erste erklärt, warum
-	 * hier nie „Artikel wurde verändert" steht: diese Fassung folgt dem
-	 * Artikeltext nicht (§6.2). Der zweite ist der wichtigere: Hat die
-	 * Zustellung eine im Editor erzeugte Fassung ersetzt, hat der Beitrag eine
-	 * Eigenschaft VERLOREN, und das darf nicht unbemerkt umschlagen (§6.5).
+	 * ZWEI SÄTZE, und der zweite nur, wenn er zutrifft. Der erste nennt die
+	 * Herkunft — sie ist zugleich der Grund, warum hier nie „Artikel wurde
+	 * verändert" steht: eine gelieferte Fassung folgt dem Artikeltext nicht und
+	 * wird von is_stale() ausgenommen (§6.2). Der zweite ist der wichtigere: Hat
+	 * die Zustellung eine im Editor erzeugte Fassung ersetzt, hat der Beitrag
+	 * eine Eigenschaft VERLOREN, und das darf nicht unbemerkt umschlagen (§6.5).
 	 *
 	 * @param int $post_id
 	 * @return string
@@ -214,7 +215,7 @@ class Article_TTS_Metabox {
 		// nach…", „Vertonung aus Heise I/O übernommen."). „DC-IO" ist der interne
 		// Name des Dienstes und stand hier als einziger sichtbarer Rest davon —
 		// für einen Redakteur zwei Namen für dieselbe Sache.
-		$note = __( 'Diese Fassung kommt aus Heise I/O und folgt nicht dem Artikeltext.', 'article-tts' );
+		$note = __( 'Diese Fassung kommt aus Heise I/O.', 'article-tts' );
 
 		$replaced = (int) get_post_meta( $post_id, Article_TTS_Deliveries::META_REPLACED_AT, true );
 
