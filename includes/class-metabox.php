@@ -339,6 +339,53 @@ class Article_TTS_Metabox {
 				</select>
 			</p>
 
+			<?php
+			// NUR wenn die Liste aus der Notkopie kommt. Im Normalbetrieb ist eine
+			// bis zu zwoelf Stunden alte Liste in Ordnung und muesste hier
+			// niemanden behelligen. Schlaegt der Abruf dagegen fehl, kann sie
+			// beliebig alt sein — und genau das war hier unsichtbar: Den Hinweis
+			// gab es nur auf der Einstellungsseite, die eine Redaktion ohne
+			// Administratorrechte nicht einmal aufrufen kann.
+			//
+			// Erst NACH der Auswahl oben abgefragt: dieser Aufruf ist es, der den
+			// Katalog holt.
+			//
+			// NICHT im unkonfigurierten Zustand: Dann steht ganz oben schon
+			// „Kein API-Key konfiguriert", und „konnte zuletzt nicht geladen
+			// werden" beschriebe denselben Umstand ein zweites Mal und dazu
+			// falsch — geladen wurde hier noch nie etwas.
+			$catalog_error = Article_TTS_Voices::last_error();
+			$show_note     = $catalog_error instanceof WP_Error
+				&& 'article_tts_not_configured' !== $catalog_error->get_error_code();
+			?>
+			<?php if ( $show_note ) : ?>
+				<?php
+				// Eigene Klasse und NICHT article-tts-warning: admin.js raeumt
+				// nach einer gelungenen Vertonung jedes .article-tts-warning aus
+				// dem Kasten (assets/js/admin.js:146 und :375). Fuer alles, was
+				// sich mit der Vertonung erledigt, ist das richtig. Der Katalog
+				// bleibt davon voellig unberuehrt — der Hinweis waere nach dem
+				// ersten „Audio generieren" verschwunden und der Grund weiter da.
+				?>
+				<p class="article-tts-catalog-note">
+					<?php esc_html_e( 'Die Stimmenliste konnte zuletzt nicht geladen werden — sie ist möglicherweise nicht vollständig. Eine neu freigegebene Stimme fehlt hier dann noch.', 'article-tts' ); ?>
+					<?php
+					// Das Alter erst hier holen: im Normalfall steht dieser Absatz
+					// gar nicht, und dann soll auch keine Option dafuer gelesen
+					// werden.
+					$catalog_age = Article_TTS_Voices::age_sentence();
+					if ( '' !== $catalog_age ) {
+						echo ' ' . esc_html( $catalog_age );
+					}
+					?>
+					<?php if ( current_user_can( 'manage_options' ) ) : ?>
+						<a href="<?php echo esc_url( admin_url( 'options-general.php?page=' . Article_TTS_Settings::PAGE_SLUG ) ); ?>">
+							<?php esc_html_e( 'In den Einstellungen neu laden', 'article-tts' ); ?>
+						</a>
+					<?php endif; ?>
+				</p>
+			<?php endif; ?>
+
 			<p class="article-tts-actions">
 				<?php
 				// Disabled while something is running: a second submit would be a

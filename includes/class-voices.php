@@ -7,9 +7,11 @@
  * stale the moment somebody adds a voice — every customer would need a plugin
  * update to see it.
  *
- * The catalogue is already scoped correctly when it arrives: DC-IO mints a token
- * for this installation's company, and the speech service returns global plus
- * own-company voices. Nothing has to be filtered here.
+ * Das Plugin filtert den Katalog nicht — und zwar weil es ihn nicht filtern
+ * KANN. Wer welche Stimme hoeren darf, entscheiden zwei Stufen weiter oben:
+ * io-tts liefert global plus eigene Firmenstimmen, DC-IO zieht davon noch die
+ * Stimmen ab, die nur bestimmten Teams freigegeben sind. Was hier ankommt, ist
+ * bereits die fertige Auswahl fuer genau diesen Zugang.
  *
  * @package Article_TTS
  */
@@ -30,6 +32,15 @@ class Article_TTS_Voices {
 	 */
 	const TTL = 43200;
 
+	/** Gerade eben geholt. */
+	const SOURCE_FRESH = 'fresh';
+
+	/** Aus dem Transient — hoechstens {@see TTL} alt. */
+	const SOURCE_CACHE = 'cache';
+
+	/** Der Abruf schlug fehl; gezeigt wird die zuletzt gelungene Liste. */
+	const SOURCE_FALLBACK = 'fallback';
+
 	/**
 	 * Last known good catalogue, kept in the options table.
 	 *
@@ -40,20 +51,84 @@ class Article_TTS_Voices {
 	const FALLBACK_OPTION = 'article_tts_catalog_fallback';
 
 	/**
-	 * Why the last catalogue request came back empty.
+	 * Was der letzte Abruf ergeben hat — Grund und Herkunft, JE KATALOG.
 	 *
-	 * An empty dropdown with no explanation is the worst thing this screen can
-	 * do: address and token look filled in, nothing is marked red, and the only
-	 * conclusion left is "the plugin is broken". It usually is not — the instance
-	 * cannot be reached, the token is refused, or the API is not deployed there.
-	 * Whichever it is, the answer already arrived; it was simply thrown away.
+	 * Ein leeres Dropdown ohne Erklaerung ist das Schlimmste, was dieser Schirm
+	 * tun kann: Adresse und Token sehen ausgefuellt aus, nichts ist rot, und der
+	 * einzige Schluss, der bleibt, ist „das Plugin ist kaputt". Meist ist es das
+	 * nicht — die Instanz ist nicht erreichbar, der Token wird abgelehnt, oder
+	 * die Schnittstelle ist dort nicht ausgerollt. Die Antwort ist jedes Mal
+	 * schon da; sie wurde nur weggeworfen.
 	 *
-	 * @var WP_Error|null
+	 * JE KATALOG und nicht eine Variable fuer beide: Die Einstellungsseite holt
+	 * erst die Stimmen, dann die Modelle. Mit einem gemeinsamen Feld haengt die
+	 * Richtigkeit der Meldung an der Reihenfolge, in der die Felder gerendert
+	 * werden — ein Modellfehler stuende sonst als Stimmenfehler da.
+	 *
+	 * @var array<string,array{error:WP_Error|null,source:string}>
 	 */
-	private static $last_error = null;
+	private static $state = array();
 
-	public static function last_error() {
-		return self::$last_error;
+	/**
+	 * @param string $kind 'voices' oder 'models'.
+	 * @return WP_Error|null
+	 */
+	public static function last_error( $kind = 'voices' ) {
+		return isset( self::$state[ $kind ]['error'] ) ? self::$state[ $kind ]['error'] : null;
+	}
+
+	/**
+	 * Woher die zuletzt gelieferte Liste kam — eine der SOURCE_*-Konstanten.
+	 *
+	 * @param string $kind 'voices' oder 'models'.
+	 * @return string Leer, solange in diesem Aufruf nichts geholt wurde.
+	 */
+	public static function served_from( $kind = 'voices' ) {
+		return isset( self::$state[ $kind ]['source'] ) ? self::$state[ $kind ]['source'] : '';
+	}
+
+	/**
+	 * Wann die gezeigte Liste zuletzt erfolgreich geholt wurde (UTC-Epoche).
+	 *
+	 * Gilt fuer BEIDE Wege: Transient und Options-Kopie werden im selben Zug
+	 * geschrieben, der Zeitstempel gehoert also immer zu dem, was gerade zu
+	 * sehen ist. 0 heisst „unbekannt" — nie eine Liste bekommen, oder eine aus
+	 * der Zeit vor diesem Zeitstempel; dann ist sie ohnehin aelter als dieses
+	 * Update.
+	 *
+	 * @param string $kind 'voices' oder 'models'.
+	 * @return int
+	 */
+	public static function updated_at( $kind = 'voices' ) {
+		$stored = get_option( self::FALLBACK_OPTION, array() );
+		$key    = $kind . '_saved_at';
+
+		return is_array( $stored ) && isset( $stored[ $key ] ) ? (int) $stored[ $key ] : 0;
+	}
+
+	/**
+	 * „Stand: …" fuer die Liste, die gerade gezeigt wird.
+	 *
+	 * Der Satz, der diese ganze Suche erspart haette: Eine fuenf Tage alte Liste
+	 * sah im Editor genauso aus wie eine frische. Leer, wenn nie eine Liste
+	 * ankam — dann ist der Fehler die Nachricht und nicht das Alter.
+	 *
+	 * @param string $kind 'voices' oder 'models'.
+	 * @return string
+	 */
+	public static function age_sentence( $kind = 'voices' ) {
+		$saved_at = self::updated_at( $kind );
+
+		if ( ! $saved_at ) {
+			return '';
+		}
+
+		return sprintf(
+			/* translators: 1: date and time of the last successful fetch, 2: human-readable age, e.g. "5 Tagen" */
+			__( 'Stand: %1$s (vor %2$s).', 'article-tts' ),
+			wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $saved_at ),
+			human_time_diff( $saved_at, time() )
+		);
 	}
 
 	public static function voices( $force = false ) {
@@ -78,7 +153,16 @@ class Article_TTS_Voices {
 	private static function fetch( $transient, $kind, $force = false ) {
 		if ( ! $force ) {
 			$cached = get_transient( $transient );
-			if ( is_array( $cached ) ) {
+
+			// `! empty()` und nicht nur `is_array()`: Vor der Regel weiter unten
+			// konnte eine leere Liste in den Transient geraten, und die laege
+			// dort noch bis zu zwoelf Stunden — ein Update, das den Fehler
+			// abstellt, wuerde seine eigenen Altlasten weiter ausliefern. So
+			// gilt ein leerer Eintrag als Fehlschlag des Zwischenspeichers und
+			// der Abruf laeuft erneut.
+			if ( is_array( $cached ) && ! empty( $cached ) ) {
+				self::note( $kind, null, self::SOURCE_CACHE );
+
 				return $cached;
 			}
 		}
@@ -87,41 +171,105 @@ class Article_TTS_Voices {
 		$client  = new Article_TTS_Client( $options['api_base_url'], $options['api_token'] );
 
 		if ( ! $client->is_configured() ) {
-			self::$last_error = new WP_Error(
-				'article_tts_not_configured',
-				__( 'Adresse und Zugangstoken sind noch nicht vollständig hinterlegt.', 'article-tts' )
+			return self::failed(
+				$kind,
+				new WP_Error(
+					'article_tts_not_configured',
+					__( 'Adresse und Zugangstoken sind noch nicht vollständig hinterlegt.', 'article-tts' )
+				)
 			);
-
-			return self::fallback( $kind );
 		}
 
 		$response = 'voices' === $kind ? $client->list_voices() : $client->list_models();
 
 		if ( is_wp_error( $response ) ) {
-			self::$last_error = $response;
-
-			return self::fallback( $kind );
+			return self::failed( $kind, $response );
 		}
 
 		if ( ! isset( $response['items'] ) || ! is_array( $response['items'] ) ) {
 			// A 200 that carries no catalogue. Rare, but it must not look like a
 			// connection problem — the connection plainly worked.
-			self::$last_error = new WP_Error(
-				'article_tts_empty_catalog',
-				__( 'Die Instanz hat geantwortet, aber keinen Stimmen-Katalog geliefert.', 'article-tts' )
+			return self::failed(
+				$kind,
+				new WP_Error(
+					'article_tts_empty_catalog',
+					sprintf(
+						/* translators: %s: the catalogue's name, e.g. "Stimmen-Katalog" */
+						__( 'Die Instanz hat geantwortet, aber keinen %s geliefert.', 'article-tts' ),
+						self::kind_label( $kind )
+					)
+				)
 			);
-
-			return self::fallback( $kind );
 		}
 
-		self::$last_error = null;
-
 		$items = array_values( $response['items'] );
+
+		// EINE LEERE LISTE IST KEIN ERFOLG.
+		//
+		// Vorher lief sie glatt durch: `array()` ist ein Array, wurde zwoelf
+		// Stunden in den Transient geschrieben UND ueberschrieb die Notkopie in
+		// der Optionstabelle. Damit war die zuletzt gelungene Liste weg, das
+		// Dropdown einen halben Tag leer — und weil kein Fehler vorlag, stand
+		// nirgends ein Wort darueber.
+		//
+		// Ein Mandant ohne eine einzige Stimme ist theoretisch denkbar. Dann
+		// bleibt das Dropdown ebenfalls leer, nur eben mit einem Satz dazu, und
+		// die alte Liste ueberlebt. Das ist in beide Richtungen der guenstigere
+		// Irrtum.
+		if ( empty( $items ) ) {
+			return self::failed(
+				$kind,
+				new WP_Error(
+					'article_tts_no_entries',
+					sprintf(
+						/* translators: %s: the catalogue's name, e.g. "Stimmen-Katalog" */
+						__( 'Die Instanz hat einen leeren %s geliefert. Angezeigt wird deshalb weiter der zuletzt bekannte Stand.', 'article-tts' ),
+						self::kind_label( $kind )
+					)
+				)
+			);
+		}
+
+		self::note( $kind, null, self::SOURCE_FRESH );
 
 		set_transient( $transient, $items, self::TTL );
 		self::remember( $kind, $items );
 
 		return $items;
+	}
+
+	/**
+	 * Der Fehlerweg: Grund merken, zuletzt gelungene Liste zeigen.
+	 *
+	 * Schreibt WEDER Transient NOCH Notkopie — ein misslungener Abruf darf einen
+	 * gelungenen nicht ueberschreiben, und der naechste Seitenaufruf soll es
+	 * erneut versuchen statt den Fehlschlag zwoelf Stunden festzuhalten.
+	 *
+	 * @return array
+	 */
+	private static function failed( $kind, WP_Error $error ) {
+		self::note( $kind, $error, self::SOURCE_FALLBACK );
+
+		return self::fallback( $kind );
+	}
+
+	private static function note( $kind, $error, $source ) {
+		self::$state[ $kind ] = array(
+			'error'  => $error,
+			'source' => $source,
+		);
+	}
+
+	/**
+	 * Der Name des Katalogs in einer Meldung.
+	 *
+	 * `fetch()` bedient beide, die Meldung sagte aber immer „Stimmen-Katalog" —
+	 * ein Modellfehler beschuldigte damit die Stimmen.
+	 */
+	private static function kind_label( $kind ) {
+		return 'voices' === $kind
+			? __( 'Stimmen-Katalog', 'article-tts' )
+			: __( 'Modell-Katalog', 'article-tts' );
 	}
 
 	private static function fallback( $kind ) {
@@ -134,6 +282,19 @@ class Article_TTS_Voices {
 		$stored          = get_option( self::FALLBACK_OPTION, array() );
 		$stored          = is_array( $stored ) ? $stored : array();
 		$stored[ $kind ] = $items;
+
+		// Der Zeitstempel ist der Grund, warum diese Kopie ueberhaupt lesbar ist.
+		// Ohne ihn sieht eine fuenf Tage alte Liste aus wie eine frische, und
+		// genau daran ist eine freigegebene Stimme tagelang unbemerkt gefehlt.
+		//
+		// time(), NICHT current_time(): eine UTC-Epoche, die wp_date() spaeter in
+		// die Zeitzone der Seite rechnet. current_time() haette den Versatz schon
+		// drin und wuerde ein zweites Mal verschoben.
+		//
+		// Eigener Schluessel je Katalog und neben den Daten, nicht darin: Der
+		// Lesepfad greift unveraendert auf $stored[ $kind ] zu, alte Kopien ohne
+		// Zeitstempel bleiben also gueltig und melden nur „unbekannt".
+		$stored[ $kind . '_saved_at' ] = time();
 
 		update_option( self::FALLBACK_OPTION, $stored, false );
 	}

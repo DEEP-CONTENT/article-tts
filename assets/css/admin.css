@@ -22,6 +22,17 @@
 	margin: 0 0 10px;
 }
 
+/* Sieht aus wie eine Warnung, traegt aber mit Absicht eine eigene Klasse:
+   admin.js entfernt nach einer gelungenen Vertonung jedes .article-tts-warning
+   aus dem Kasten. Ein nicht ladbarer Katalog ist davon aber unberuehrt und
+   muss stehen bleiben. */
+.article-tts-metabox .article-tts-catalog-note {
+	background: #fff3cd;
+	border-left: 3px solid #f0b849;
+	padding: 8px 10px;
+	margin: 0 0 10px;
+}
+
 .article-tts-metabox .article-tts-stale {
 	color: #b65414;
 	font-weight: 600;

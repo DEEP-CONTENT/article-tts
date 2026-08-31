@@ -14,6 +14,20 @@ class Article_TTS_Settings {
 	const PAGE_SLUG     = 'article-tts';
 	const SETTINGS_GROUP = 'article_tts_settings_group';
 
+	/** admin-post-Aktion hinter „Katalog neu laden". */
+	const ACTION_REFRESH = 'article_tts_refresh_catalog';
+
+	/**
+	 * Praefix des Einmal-Hinweises nach dem Neuladen, je Benutzer.
+	 *
+	 * Und ausdruecklich KEIN Parameter in der Adresse: Die Settings-API legt die
+	 * aufgerufene Adresse als `_wp_http_referer` ins Formular und leitet nach
+	 * dem Speichern genau dorthin zurueck. Ein `?article-tts-refreshed=1` klebte
+	 * damit an jedem weiteren „Aenderungen speichern" und meldete ein Neuladen,
+	 * das gar nicht stattgefunden hat.
+	 */
+	const REFRESH_NOTICE = 'article_tts_refresh_notice_';
+
 	private static $instance = null;
 
 	public static function get_instance() {
@@ -28,6 +42,49 @@ class Article_TTS_Settings {
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 		add_filter( 'plugin_action_links_' . plugin_basename( ARTICLE_TTS_FILE ), array( $this, 'add_action_links' ) );
+		add_action( 'admin_post_' . self::ACTION_REFRESH, array( $this, 'handle_refresh' ) );
+	}
+
+	/**
+	 * „Katalog neu laden".
+	 *
+	 * Der Umweg ueber admin-post statt eines zweiten Knopfes im Formular: Das
+	 * Formular der Seite gehoert der Settings-API und geht an options.php. Ein
+	 * eigener Knopf darin wuerde entweder die Einstellungen mitspeichern oder ein
+	 * Formular im Formular verlangen; beides ist schlechter als ein Link mit
+	 * Nonce.
+	 *
+	 * Vorher gab es diesen Weg gar nicht: Der einzige Weg zu einer frischen Liste
+	 * war „Aenderungen speichern", weil das nebenbei flush() ausloest. Wer das
+	 * nicht wusste, wartete bis zu zwoelf Stunden auf eine gerade freigegebene
+	 * Stimme.
+	 */
+	public function handle_refresh() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'Dafür fehlen die Rechte.', 'article-tts' ), '', array( 'response' => 403 ) );
+		}
+
+		check_admin_referer( self::ACTION_REFRESH );
+
+		// Erst wegwerfen, dann holen. Das Holen allein genuegt nicht: Schlaegt es
+		// fehl, laege der alte Transient noch da und die Seite zeigte danach
+		// wieder die alte Liste — ohne ein Wort darueber, dass das Neuladen
+		// nicht geklappt hat.
+		Article_TTS_Voices::flush();
+		Article_TTS_Voices::voices( true );
+		Article_TTS_Voices::models( true );
+
+		$failed = Article_TTS_Voices::last_error( 'voices' ) instanceof WP_Error
+			|| Article_TTS_Voices::last_error( 'models' ) instanceof WP_Error;
+
+		set_transient(
+			self::REFRESH_NOTICE . get_current_user_id(),
+			$failed ? 'error' : 'success',
+			MINUTE_IN_SECONDS
+		);
+
+		wp_safe_redirect( admin_url( 'options-general.php?page=' . self::PAGE_SLUG ) );
+		exit;
 	}
 
 	public function add_action_links( $links ) {
@@ -310,6 +367,7 @@ class Article_TTS_Settings {
 		?>
 		<div class="wrap article-tts-settings">
 			<h1><?php esc_html_e( 'Heise I/O Article TTS — Einstellungen', 'article-tts' ); ?></h1>
+			<?php $this->render_refresh_notice(); ?>
 			<form action="options.php" method="post">
 				<?php
 				settings_fields( self::SETTINGS_GROUP );
@@ -319,6 +377,38 @@ class Article_TTS_Settings {
 			</form>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Das Ergebnis von „Katalog neu laden", nach der Rueckleitung.
+	 *
+	 * Nur die Ueberschrift steht hier. Der GRUND eines Fehlschlags steht weiter
+	 * unten an der Stimmenauswahl, wo er hingehoert — dorthin schaut, wer das
+	 * Dropdown vermisst, und dort steht er auch ohne diesen Knopf.
+	 */
+	private function render_refresh_notice() {
+		$key    = self::REFRESH_NOTICE . get_current_user_id();
+		$result = get_transient( $key );
+
+		if ( ! $result ) {
+			return;
+		}
+
+		// Einmal gezeigt, dann weg — sonst stuende er beim naechsten Aufruf der
+		// Seite erneut da, ohne dass jemand etwas neu geladen haette.
+		delete_transient( $key );
+
+		$ok = 'success' === $result;
+
+		printf(
+			'<div class="notice notice-%1$s is-dismissible"><p>%2$s</p></div>',
+			$ok ? 'success' : 'error',
+			esc_html(
+				$ok
+					? __( 'Der Katalog wurde neu geladen.', 'article-tts' )
+					: __( 'Der Katalog konnte nicht neu geladen werden — der Grund steht unten bei der Stimmenauswahl.', 'article-tts' )
+			)
+		);
 	}
 
 	public function field_api_base_url() {
@@ -415,6 +505,21 @@ class Article_TTS_Settings {
 
 		echo '</select>';
 
+		// Der Modellfehler gehoert HIERHIN und nirgendwo sonst. Er wurde bisher
+		// ueberhaupt nicht ausgegeben: `render_voice_select()` zeigt den Fehler
+		// des STIMMEN-Katalogs, und „Katalog neu laden" zaehlt einen
+		// Modellfehler mit, ohne ihn zeigen zu koennen. Der rote Kasten oben
+		// verwies damit auf einen Grund, den die Seite verschwieg.
+		$error = Article_TTS_Voices::last_error( 'models' );
+
+		if ( $error instanceof WP_Error ) {
+			printf(
+				'<div class="notice notice-error inline"><p><strong>%1$s</strong> %2$s</p></div>',
+				esc_html__( 'Modelle konnten nicht geladen werden.', 'article-tts' ),
+				esc_html( $error->get_error_message() )
+			);
+		}
+
 		if ( '' === $current ) {
 			printf(
 				'<div class="notice notice-warning inline"><p>%s</p></div>',
@@ -426,11 +531,33 @@ class Article_TTS_Settings {
 	private function render_voice_select( $name, $selected ) {
 		echo '<select name="' . esc_attr( $name ) . '" class="regular-text">';
 		Article_TTS_Plugin::render_voice_options( $selected );
-		echo '</select>';
+		echo '</select> ';
 
-		// Only reachable AFTER the options were rendered — that call is what
-		// fetches the catalogue and therefore what learns why it stayed empty.
+		// Ein Link, kein Knopf: Dieses Feld wird INNERHALB des
+		// Einstellungsformulars gerendert, ein Formular im Formular waere
+		// kaputtes HTML. Mit `button`-Klasse sieht der Link aus wie einer.
+		printf(
+			'<a href="%1$s" class="button">%2$s</a>',
+			esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=' . self::ACTION_REFRESH ), self::ACTION_REFRESH ) ),
+			esc_html__( 'Katalog neu laden', 'article-tts' )
+		);
+
+		// Erst NACH dem Rendern der Optionen zu haben — dieser Aufruf ist es, der
+		// den Katalog holt und deshalb auch erfaehrt, warum er leer blieb.
 		$error = Article_TTS_Voices::last_error();
+		$age   = Article_TTS_Voices::age_sentence();
+
+		printf(
+			'<p class="description">%1$s%2$s</p>',
+			esc_html(
+				sprintf(
+					/* translators: %s: cache lifetime, e.g. "12 Stunden" */
+					__( 'Der Katalog wird %s zwischengespeichert. Eine gerade erst freigegebene Stimme erscheint erst danach — oder sofort über diesen Knopf. Er benutzt die gespeicherten Zugangsdaten; frisch eingetippte also zuerst speichern.', 'article-tts' ),
+					human_time_diff( 0, Article_TTS_Voices::TTL )
+				)
+			),
+			'' !== $age ? ' ' . esc_html( $age ) : ''
+		);
 
 		if ( ! $error instanceof WP_Error ) {
 			return;
