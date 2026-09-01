@@ -184,7 +184,7 @@ class Article_TTS_Deliveries {
 		if ( ! $client->is_configured() ) {
 			return new WP_Error(
 				'article_tts_not_configured',
-				__( 'Verbindung zu Heise I/O ist nicht konfiguriert.', 'article-tts' )
+				__( 'Die Verbindung zu Heise I/O ist nicht eingerichtet.', 'article-tts' )
 			);
 		}
 

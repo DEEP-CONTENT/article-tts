@@ -85,7 +85,7 @@ class Article_TTS_Generator {
 		if ( ! $client->is_configured() ) {
 			return new WP_Error(
 				'article_tts_not_configured',
-				__( 'Adresse und Token für Heise I/O fehlen. Bitte in den Einstellungen hinterlegen.', 'article-tts' )
+				__( 'Adresse und Zugangstoken für Heise I/O fehlen. Bitte in den Einstellungen eintragen.', 'article-tts' )
 			);
 		}
 

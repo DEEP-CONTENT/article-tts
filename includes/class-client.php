@@ -170,7 +170,7 @@ class Article_TTS_Client {
 	 */
 	private function stream_to_file( $path, $destination ) {
 		if ( ! $this->is_configured() ) {
-			return new WP_Error( 'article_tts_not_configured', __( 'Verbindung zu Heise I/O ist nicht konfiguriert.', 'article-tts' ) );
+			return new WP_Error( 'article_tts_not_configured', __( 'Die Verbindung zu Heise I/O ist nicht eingerichtet.', 'article-tts' ) );
 		}
 
 		// Deliberately NOT download_url(). Two reasons, both found the hard way:
@@ -259,7 +259,7 @@ class Article_TTS_Client {
 	 */
 	private function request( $method, $path, $body = array(), $headers = array() ) {
 		if ( ! $this->is_configured() ) {
-			return new WP_Error( 'article_tts_not_configured', __( 'Verbindung zu Heise I/O ist nicht konfiguriert.', 'article-tts' ) );
+			return new WP_Error( 'article_tts_not_configured', __( 'Die Verbindung zu Heise I/O ist nicht eingerichtet.', 'article-tts' ) );
 		}
 
 		$args = array(

@@ -1,6 +1,6 @@
 <?php
 /**
- * Settings page for ElevenLabs TTS plugin.
+ * Settings page for the Heise I/O Article TTS plugin.
  *
  * @package Article_TTS
  */

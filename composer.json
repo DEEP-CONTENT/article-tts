@@ -1,6 +1,6 @@
 {
     "name": "deep-content/article-tts",
-    "description": "Heise I/O Article TTS — wandelt WordPress-Artikel über die ElevenLabs Text-to-Speech API in Audio um und zeigt einen HTML5-Player im Frontend.",
+    "description": "Heise I/O Article TTS — vertont WordPress-Artikel über Heise I/O und spielt das Ergebnis als HTML5-Player im Frontend aus.",
     "type": "wordpress-plugin",
     "license": "GPL-2.0-or-later",
     "authors": [
