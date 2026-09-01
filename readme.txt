@@ -39,6 +39,19 @@ Features:
 
 == Changelog ==
 
+= 1.1.1 =
+* **Die Vertonung läuft über Heise I/O, nicht mehr direkt beim Sprachanbieter.** Der Anbieter-Schlüssel entfällt; er liegt jetzt dort, wo er verwaltet wird, und nicht mehr in dieser WordPress-Installation.
+* **Vor der ersten Vertonung einzutragen:** Adresse und Zugangstoken unter **Einstellungen → Heise I/O Article TTS**. Den Token erhalten Sie von Heise I/O. Ohne beides bleibt die Vertonung stehen — bereits erzeugte Audios spielen unverändert weiter.
+* Neu: **Zustellungen aus dem Heise-I/O-Editor.** Eine dort erzeugte Vertonung, an die Adresse eines Artikels geschickt, hängt kurz darauf an diesem Artikel. Einzurichten ist dafür nichts; abgeholt wird im Fünf-Minuten-Takt, es kann also so lange dauern. Eine Zustellung ersetzt eine vorhandene Vertonung, unterbricht aber nie eine laufende.
+* Neu: Knopf **„Jetzt von Heise I/O holen"** in der Audio-Box, wenn das Warten auf den nächsten Durchgang zu lang ist.
+* Die Vertonung hält keinen Seitenaufruf mehr offen: Sie läuft im Hintergrund, die Audio-Box zeigt den Fortschritt.
+* Die Stimmenauswahl kommt aus dem Katalog Ihrer Instanz. Die Box nennt den Stand des Katalogs und lässt ihn neu laden. Das Modell ist ein Pflichtfeld — ohne Modell weist die Gegenseite jede Vertonung zurück.
+* Bestehende Installationen werden beim Update übernommen. Eine vor der Umstellung erzeugte Fassung bleibt abspielbar und meldet sich als solche, statt als „veraltet" zu erscheinen.
+* Behoben: Der Fünf-Minuten-Cron starb im Frontend an einer Funktion, die es dort nicht gibt.
+* Behoben: Ein einzelnes ungültiges Byte im Artikeltext verschluckte den ganzen Artikel.
+* Behoben: Das Speichern der Einstellungen löschte das Modell — und damit jede weitere Vertonung.
+* Behoben: Frisch erzeugtes Audio war erst nach einem Neuladen des Editors abspielbar.
+
 = 1.0.4 =
 * "Einstellungen"-Link in der Aktions-Spalte der Plugin-Übersicht.
 
@@ -53,3 +66,8 @@ Features:
 
 = 1.0.0 =
 * Initial release.
+
+== Upgrade Notice ==
+
+= 1.1.1 =
+Diese Fassung spricht nicht mehr direkt mit dem Sprachanbieter, sondern mit Heise I/O. Tragen Sie danach unter Einstellungen → Heise I/O Article TTS Adresse und Zugangstoken ein — den Token erhalten Sie von Heise I/O. Bis dahin lässt sich nichts Neues vertonen; vorhandene Audios spielen weiter.
