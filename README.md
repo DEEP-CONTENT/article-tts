@@ -13,13 +13,13 @@ Eigenständiges WordPress-Plugin, das Artikel-Inhalt (Titel + Excerpt + Body) ü
 - Funktioniert mit jedem Post-Type (Standard: `post`, weitere in den Settings aktivierbar)
 - Sichtbarkeit des Players pro Rolle steuerbar (inkl. Gäste); leer = alle Besucher
 - Nutzt ausschließlich WordPress-Core-APIs — keine Theme-Abhängigkeit
-- Nimmt Vertonungen entgegen, die in DC-IO erzeugt und an einen Artikel geschickt wurden
+- Nimmt Vertonungen entgegen, die in Heise I/O erzeugt und an einen Artikel geschickt wurden
   (siehe unten): ohne Einrichtung, ohne offenen Eingang
 
-## Zustellung aus DC-IO
+## Zustellung aus Heise I/O
 
 Neben der Vertonung, die hier ausgelöst wird, gibt es die Gegenrichtung: Jemand erzeugt in
-DC-IO eine Vertonung, fügt dort die Adresse eines Artikels ein, und die Datei hängt kurz
+Heise I/O eine Vertonung, fügt dort die Adresse eines Artikels ein, und die Datei hängt kurz
 darauf an diesem Artikel.
 
 **Einzurichten ist dafür nichts.** Es reicht die Adresse und der Token, die ohnehin in den
@@ -28,7 +28,7 @@ noch, ob etwas bereitliegt.
 
 Drei Dinge, die im Betrieb auffallen können:
 
-- **Bis zu fünf Minuten Verzögerung.** DC-IO schiebt nichts hierher; das Plugin holt ab.
+- **Bis zu fünf Minuten Verzögerung.** Heise I/O schiebt nichts hierher; das Plugin holt ab.
   Das ist Absicht: So braucht es keinen von außen erreichbaren Eingang auf einer
   Redaktionsseite.
 - **Eine Zustellung überschreibt eine vorhandene Vertonung**, ohne Rückfrage. Es sitzt
@@ -39,10 +39,8 @@ Drei Dinge, die im Betrieb auffallen können:
   ändert. Die Audio-Box im Editor sagt, woher die Fassung kommt und ob sie eine erzeugte
   ersetzt hat.
 
-Bei einem **unveröffentlichten** Artikel muss in DC-IO die Vorschau-Adresse oder die Adresse
+Bei einem **unveröffentlichten** Artikel muss in Heise I/O die Vorschau-Adresse oder die Adresse
 aus dem Editor eingefügt werden. Den schönen Permalink gibt es dann noch nicht.
-
-Der Protokollteil steht in `Laravel-DC-IO/docs/api/tts-deliveries-endpoint.md`.
 
 ## Installation
 
@@ -94,7 +92,7 @@ composer install   # installiert plugin-update-checker (require-dev)
 ## Technische Hinweise
 
 - Audio-Dateien werden unter `wp-content/uploads/article-tts/` gespeichert (öffentlich abrufbar, nicht in der Mediathek).
-- API-Aufruf in `includes/class-api.php`.
+- Der Verkehr mit Heise I/O steht in `includes/class-client.php`, der Posteingang in `includes/class-deliveries.php`.
 - Die Rollen-Sichtbarkeit (**Einstellungen → Sichtbar für**) unterdrückt nur Rendering und Asset-Loading des Players — die MP3-Datei selbst bleibt unter ihrer öffentlichen URL erreichbar, wenn sie bekannt ist.
 
 ## Lizenz
