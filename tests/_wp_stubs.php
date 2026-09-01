@@ -16,6 +16,15 @@ declare(strict_types=1);
  * Methodenkoerpern.
  */
 
+// Kein Webaufruf. Diese Datei wird seit 1.1.1 mit ins Release-Paket gepackt und
+// liegt damit in einem Verzeichnis, das viele Installationen ueber HTTP
+// ausliefern — und anders als die Klassendateien hat sie keinen ABSPATH-Riegel,
+// hinter den sie sich stellen koennte.
+if (PHP_SAPI !== 'cli') {
+    exit;
+}
+
+
 if (! defined('ABSPATH')) {
     define('ABSPATH', __DIR__ . '/');
 }

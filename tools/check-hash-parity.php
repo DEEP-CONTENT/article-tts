@@ -18,6 +18,15 @@ declare(strict_types=1);
  * Exit code 0 means the two agree.
  */
 
+// Kein Webaufruf. Diese Datei wird seit 1.1.1 mit ins Release-Paket gepackt und
+// liegt damit in einem Verzeichnis, das viele Installationen ueber HTTP
+// ausliefern — und anders als die Klassendateien hat sie keinen ABSPATH-Riegel,
+// hinter den sie sich stellen koennte.
+if (PHP_SAPI !== 'cli') {
+    exit;
+}
+
+
 $laravelRoot = $argv[1] ?? getenv('DC_IO_PATH') ?: '';
 
 if ($laravelRoot === '' || !is_dir($laravelRoot)) {

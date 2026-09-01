@@ -24,6 +24,15 @@ declare(strict_types=1);
  * Rueckgabe 0 heisst: alle Zusicherungen halten.
  */
 
+// Kein Webaufruf. Diese Datei wird seit 1.1.1 mit ins Release-Paket gepackt und
+// liegt damit in einem Verzeichnis, das viele Installationen ueber HTTP
+// ausliefern — und anders als die Klassendateien hat sie keinen ABSPATH-Riegel,
+// hinter den sie sich stellen koennte.
+if (PHP_SAPI !== 'cli') {
+    exit;
+}
+
+
 $failures = [];
 $checks   = 0;
 
