@@ -73,14 +73,28 @@ aus dem Editor eingefügt werden. Den schönen Permalink gibt es dann noch nicht
 
 ## Auto-Updates
 
-Das Plugin nutzt [plugin-update-checker](https://github.com/YahnisElsts/plugin-update-checker) und prüft regelmäßig dieses Repository auf neue Tags. Updates erscheinen direkt in der WordPress Plugin-Übersicht.
+Das Plugin nutzt [plugin-update-checker](https://github.com/YahnisElsts/plugin-update-checker) und fragt dieses Repository regelmäßig (voreingestellt zweimal täglich) nach einer neueren Fassung. Updates erscheinen in der WordPress Plugin-Übersicht.
+
+**Wonach der Prüfer schaut, und in welcher Reihenfolge:** das jüngste GitHub-**Release**, dann der höchste Tag, dann der Branch `main` (`setBranch('main')` in `article-tts.php`). Die erste nicht-leere Antwort gewinnt, weitere werden nicht mehr versucht (`Puc/v5p6/Vcs/GitHubApi.php`, `getUpdateDetectionStrategies()`; `Vcs/Api.php`, `chooseReference()`). Die Versionsnummer liest er anschließend aus dem `Version:`-Header von `article-tts.php` **an genau dieser Referenz**.
+
+Daran scheitert ein Release, ohne dass es auffällt: **Solange ein älteres Release existiert, gewinnt es.** Ein Merge nach `main` zeigt dann bei niemandem ein Update, und ein bloßer Tag ebenso wenig. Der `Stable tag` in `readme.txt` entscheidet darüber nichts — er gehört zu den Metadaten, die WordPress im Details-Dialog anzeigt.
 
 Neue Versionen veröffentlichen:
 
-1. Version in `article-tts.php` (Header `Version:` + `ARTICLE_TTS_VERSION`) und `readme.txt` (`Stable tag`) erhöhen.
-2. Commit pushen.
-3. Tag setzen und pushen: `git tag v1.0.1 && git push --tags`.
-4. Optional: GitHub Release mit Changelog erstellen.
+1. Version in `article-tts.php` (Header `Version:` + `ARTICLE_TTS_VERSION`) und `readme.txt` (`Stable tag`) erhöhen — alle drei müssen dieselbe Nummer tragen.
+2. In `readme.txt` einen Changelog-Eintrag ergänzen, und wenn die Version einen Eingriff erzwingt, eine `== Upgrade Notice ==`. Das ist der Text, den ein Administrator vor dem Klick zu sehen bekommt; der Update-Prüfer zeigt aus dieser Datei nur Description, Installation und Changelog.
+3. Nach `main` mergen, CI abwarten.
+4. **Release veröffentlichen** — der Schritt, der die Aktualisierung überhaupt auslöst:
+
+   ```bash
+   gh release create v1.1.1 --target main --title v1.1.1 --notes-file release-notes.md
+   ```
+
+   Der Tag muss auf einen Commit zeigen, dessen `Version:`-Header dieselbe Nummer trägt.
+
+Zurücknehmen, solange noch keine Installation aktualisiert hat: `gh release delete v1.1.1 --cleanup-tag`.
+
+`enableReleaseAssets()` ist aktiv: Hängt am Release eine Datei, wird **diese** installiert statt des automatisch erzeugten Zipballs — und zwar die erste, ungefiltert. Also entweder ein vollständiges, installierbares ZIP anhängen (Wurzelverzeichnis `article-tts/`) oder gar keins.
 
 ## Entwicklung
 
