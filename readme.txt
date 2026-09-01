@@ -60,6 +60,7 @@ Zustellungen aus dem Heise-I/O-Editor: Wer dort eine Vertonung erzeugt und die A
 * Behoben: Ein einzelnes ungültiges Byte im Artikeltext verschluckte den ganzen Artikel.
 * Behoben: Das Speichern der Einstellungen löschte das Modell — und damit jede weitere Vertonung.
 * Behoben: Frisch erzeugtes Audio war erst nach einem Neuladen des Editors abspielbar.
+* Behoben: Wurde der Artikel während der laufenden Vertonung noch geändert, trug das fertige Audio die Prüfsumme des neuen Textes. Der Beitrag galt damit dauerhaft als aktuell, obwohl das Audio den alten Text spricht.
 
 = 1.0.4 =
 * "Einstellungen"-Link in der Aktions-Spalte der Plugin-Übersicht.

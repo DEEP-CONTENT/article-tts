@@ -295,7 +295,7 @@ class Article_TTS_Metabox {
 					<?php
 					printf(
 						/* translators: %s: settings link */
-						wp_kses_post( __( 'Kein API-Key konfiguriert. Bitte unter %s eintragen.', 'article-tts' ) ),
+						wp_kses_post( __( 'Die Verbindung zu Heise I/O ist nicht eingerichtet. Bitte Adresse und Zugangstoken unter %s eintragen.', 'article-tts' ) ),
 						'<a href="' . esc_url( admin_url( 'options-general.php?page=' . Article_TTS_Settings::PAGE_SLUG ) ) . '">' . esc_html__( 'Einstellungen → Heise I/O Article TTS', 'article-tts' ) . '</a>'
 					);
 					?>
@@ -351,8 +351,8 @@ class Article_TTS_Metabox {
 			// Katalog holt.
 			//
 			// NICHT im unkonfigurierten Zustand: Dann steht ganz oben schon
-			// „Kein API-Key konfiguriert", und „konnte zuletzt nicht geladen
-			// werden" beschriebe denselben Umstand ein zweites Mal und dazu
+			// „Die Verbindung zu Heise I/O ist nicht eingerichtet", und „konnte zuletzt
+			// nicht geladen werden" beschriebe denselben Umstand ein zweites Mal und dazu
 			// falsch — geladen wurde hier noch nie etwas.
 			$catalog_error = Article_TTS_Voices::last_error();
 			$show_note     = $catalog_error instanceof WP_Error

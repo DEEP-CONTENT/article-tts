@@ -40,6 +40,18 @@ class Article_TTS_Generator {
 	const META_JOB_DONE   = '_article_tts_job_done';
 
 	/**
+	 * Die Fassung, die tatsaechlich abgeschickt wurde.
+	 *
+	 * `ingest()` rechnete Pruefsumme und Stimme aus dem Artikel neu, wie er im
+	 * Augenblick des Abholens dasteht. Wer waehrend der laufenden Vertonung noch
+	 * einen Tippfehler korrigiert, bekam damit Audio des alten Textes, dem die
+	 * Pruefsumme des neuen anhing — und `is_stale()` verglich den Wert fortan
+	 * gegen sich selbst und meldete nie wieder etwas.
+	 */
+	const META_JOB_HASH  = '_article_tts_job_hash';
+	const META_JOB_VOICE = '_article_tts_job_voice';
+
+	/**
 	 * Which formula produced `_article_tts_audio_hash`.
 	 *
 	 * 1 = the provider-era md5. 2 = the current sha256, computed identically on
@@ -112,7 +124,7 @@ class Article_TTS_Generator {
 		// Die Paritaet bleibt unberuehrt: gesendet wird der bereits gereinigte und
 		// normalisierte Text, die Gegenseite normalisiert also dasselbe noch
 		// einmal — und das ist idempotent.
-		$text = self::normalize( wp_check_invalid_utf8( self::build_text( $post, $options ), true ) );
+		$text = self::hashable_text( $post, $options );
 		if ( '' === $text ) {
 			return new WP_Error( 'article_tts_empty_text', __( 'Der zusammengesetzte Artikeltext ist leer.', 'article-tts' ) );
 		}
@@ -142,6 +154,12 @@ class Article_TTS_Generator {
 			return new WP_Error( 'article_tts_no_job', __( 'Heise I/O hat keine Job-ID zurückgegeben.', 'article-tts' ) );
 		}
 
+		// ERST die Pruefsumme, DANN die Job-Id. `ingest()` steigt ohne Job-Id aus,
+		// eine Pruefsumme ohne Job-Id ist also wirkungslos — umgekehrt truege ein
+		// Abbruch zwischen den Zeilen dem neuen Auftrag die Pruefsumme des alten
+		// an, und der Rueckfall griffe nicht, weil ja ein Wert dasteht.
+		update_post_meta( $post_id, self::META_JOB_HASH, $hash );
+		update_post_meta( $post_id, self::META_JOB_VOICE, $voice_id );
 		update_post_meta( $post_id, self::META_JOB_ID, $job_id );
 		update_post_meta( $post_id, self::META_JOB_STATUS, isset( $response['jobStatus'] ) ? $response['jobStatus'] : 'queued' );
 		update_post_meta( $post_id, self::META_JOB_CHUNKS, isset( $response['chunkCount'] ) ? (int) $response['chunkCount'] : 0 );
@@ -220,10 +238,26 @@ class Article_TTS_Generator {
 			return new WP_Error( 'article_tts_no_job', __( 'Für diesen Beitrag läuft keine Vertonung.', 'article-tts' ) );
 		}
 
-		$options  = Article_TTS_Plugin::get_options();
-		$voice_id = self::resolve_voice_id( $post_id, $options );
-		$text     = self::normalize( self::build_text( $post, $options ) );
-		$hash     = self::content_hash( $text, $voice_id, $options['model_id'], $options['language'] );
+		$options = Article_TTS_Plugin::get_options();
+
+		// AUS DEM ABSENDEN, nicht aus dem Artikel, wie er jetzt dasteht: Was
+		// hier ankommt, ist die Vertonung des Textes von damals. Rechnete man
+		// beides neu, truege sie die Pruefsumme einer Fassung, die nie
+		// gesprochen wurde — und `is_stale()` verglich diesen Wert danach gegen
+		// sich selbst.
+		$hash     = (string) get_post_meta( $post_id, self::META_JOB_HASH, true );
+		$voice_id = (string) get_post_meta( $post_id, self::META_JOB_VOICE, true );
+
+		// Ein Auftrag, der beim Update dieses Plugins schon unterwegs war, hat
+		// die beiden Werte nicht. Fuer ihn bleibt es beim Nachrechnen — das ist
+		// dieselbe Ungenauigkeit wie bisher und besser als ein Abbruch.
+		if ( '' === $hash ) {
+			$text     = self::hashable_text( $post, $options );
+			$voice_id = self::resolve_voice_id( $post_id, $options );
+			$hash     = self::content_hash( $text, $voice_id, $options['model_id'], $options['language'] );
+		} elseif ( '' === $voice_id ) {
+			$voice_id = self::resolve_voice_id( $post_id, $options );
+		}
 
 		$target = self::audio_target( $post_id, $hash );
 		if ( is_wp_error( $target ) ) {
@@ -302,6 +336,8 @@ class Article_TTS_Generator {
 				self::META_JOB_START,
 				self::META_JOB_CHUNKS,
 				self::META_JOB_DONE,
+				self::META_JOB_HASH,
+				self::META_JOB_VOICE,
 			),
 			// Die Spuren einer Zustellung gehen mit. Bliebe die Herkunft stehen,
 			// hielte `is_stale()` die NÄCHSTE, im Editor erzeugte Fassung für eine
@@ -350,13 +386,36 @@ class Article_TTS_Generator {
 		$options = Article_TTS_Plugin::get_options();
 
 		$current = self::content_hash(
-			self::normalize( self::build_text( $post, $options ) ),
+			self::hashable_text( $post, $options ),
 			self::resolve_voice_id( $post_id, $options ),
 			$options['model_id'],
 			$options['language']
 		);
 
 		return $stored !== $current;
+	}
+
+	/**
+	 * Der Text, ueber den die Pruefsumme laeuft — an genau EINER Stelle gebildet.
+	 *
+	 * Vorher stand die Formel dreimal da, und zwei der drei waren gleich: Nur
+	 * `submit()` reinigte mit `wp_check_invalid_utf8()` (seit afd84df, wo ein
+	 * einzelnes ungueltiges Byte den ganzen Artikel verschluckte), `ingest()` und
+	 * `is_stale()` taten es nicht. Auffallen konnte das nicht, solange `ingest()`
+	 * die Pruefsumme selbst nachrechnete: Sie und `is_stale()` benutzten dieselbe
+	 * ungereinigte Formel, verglichen also Gleiches mit Gleichem.
+	 *
+	 * Seit die Pruefsumme aus dem Absenden stammt, waeren es zwei Formeln — und
+	 * ein Artikel mit einem ungueltigen Byte in Titel oder Excerpt gaelte
+	 * DAUERHAFT als veraltet: Der Redakteur vertont neu, es kostet jedes Mal, und
+	 * der Hinweis geht nie weg. Deshalb rechnen jetzt alle drei denselben Text.
+	 *
+	 * @param WP_Post $post
+	 * @param array   $options
+	 * @return string
+	 */
+	private static function hashable_text( $post, $options ) {
+		return self::normalize( wp_check_invalid_utf8( self::build_text( $post, $options ), true ) );
 	}
 
 	/**
