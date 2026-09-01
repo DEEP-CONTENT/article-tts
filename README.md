@@ -1,12 +1,12 @@
 # Heise I/O Article TTS
 
-Eigenständiges WordPress-Plugin, das Artikel-Inhalt (Titel + Excerpt + Body) über eine Text-to-Speech API in eine MP3-Datei umwandelt und einen Audio-Player im Frontend ausspielt.
+Eigenständiges WordPress-Plugin, das Artikel-Inhalt (Titel, Body, auf Wunsch das Excerpt) über Heise I/O in eine MP3-Datei umwandelt und einen Audio-Player im Frontend ausspielt. Die Zugangsdaten des Sprachanbieters liegen nicht in dieser Installation, sondern bei Heise I/O; eingetragen werden hier nur die Adresse der Instanz und ein Zugangstoken.
 
 ## Features
 
-- API-Key Konfiguration über eine eigene Settings-Seite (**Einstellungen → Heise I/O Article TTS**)
-- Manuelle Audio-Generierung pro Artikel über einen Button in der Sidebar des Post-Editors
-- Kuratierte Stimmen-Auswahl (männlich / weiblich), pro Post überschreibbar
+- Adresse und Zugangstoken über eine eigene Settings-Seite (**Einstellungen → Heise I/O Article TTS**)
+- Vertonung pro Artikel über einen Button in der Sidebar des Post-Editors; sie läuft im Hintergrund, die Audio-Box zeigt den Fortschritt
+- Stimmen aus dem Katalog der Instanz, nach Sprache gruppiert, pro Post überschreibbar
 - Hash-basiertes Caching — gleicher Text wird nicht erneut abgerechnet
 - Frontend-Player über `the_content` Filter (Position konfigurierbar: oben/unten/beides/manuell)
 - Shortcode `[article_audio]` für manuelle Platzierung im Block-Editor
@@ -49,7 +49,8 @@ aus dem Editor eingefügt werden. Den schönen Permalink gibt es dann noch nicht
 1. ZIP des aktuellen Releases von [GitHub Releases](https://github.com/DEEP-CONTENT/article-tts/releases) herunterladen.
 2. In WordPress unter **Plugins → Neues Plugin hinzufügen → Plugin hochladen** installieren.
 3. Aktivieren.
-4. Unter **Einstellungen → Heise I/O Article TTS** den API-Key eintragen.
+4. Unter **Einstellungen → Heise I/O Article TTS** die Adresse der Heise-I/O-Instanz und den Zugangstoken eintragen.
+5. Modell und Standard-Stimme wählen. Beide Listen kommen aus der Instanz und füllen sich erst, wenn Adresse und Token stimmen; ohne Modell weist die Gegenseite jede Vertonung zurück.
 
 ### Option 2: Composer
 
