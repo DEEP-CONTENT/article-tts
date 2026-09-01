@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Heise I/O Article TTS
  * Description: Wandelt WordPress-Artikel über eine Text-to-Speech API in Audio um und zeigt einen HTML5-Player im Frontend.
- * Version: 1.0.4
+ * Version: 1.1.1
  * Author: Deep Content by Heise
  * License: GPL v2 or later
  * Text Domain: article-tts
@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'ARTICLE_TTS_VERSION', '1.0.4' );
+define( 'ARTICLE_TTS_VERSION', '1.1.1' );
 define( 'ARTICLE_TTS_FILE', __FILE__ );
 define( 'ARTICLE_TTS_PATH', plugin_dir_path( __FILE__ ) );
 define( 'ARTICLE_TTS_URL', plugin_dir_url( __FILE__ ) );
@@ -34,12 +34,16 @@ if ( file_exists( ARTICLE_TTS_PATH . 'vendor/autoload.php' ) ) {
 	}
 }
 
-require_once ARTICLE_TTS_PATH . 'includes/class-api.php';
+require_once ARTICLE_TTS_PATH . 'includes/class-client.php';
+require_once ARTICLE_TTS_PATH . 'includes/class-voices.php';
 require_once ARTICLE_TTS_PATH . 'includes/class-settings.php';
 require_once ARTICLE_TTS_PATH . 'includes/class-generator.php';
+require_once ARTICLE_TTS_PATH . 'includes/class-deliveries.php';
 require_once ARTICLE_TTS_PATH . 'includes/class-metabox.php';
 require_once ARTICLE_TTS_PATH . 'includes/class-player.php';
 require_once ARTICLE_TTS_PATH . 'includes/class-ajax.php';
+require_once ARTICLE_TTS_PATH . 'includes/class-cron.php';
+require_once ARTICLE_TTS_PATH . 'includes/class-upgrade.php';
 
 class Article_TTS_Plugin {
 
@@ -57,6 +61,8 @@ class Article_TTS_Plugin {
 		Article_TTS_Metabox::get_instance();
 		Article_TTS_Player::get_instance();
 		Article_TTS_Ajax::get_instance();
+		Article_TTS_Cron::get_instance();
+		Article_TTS_Upgrade::get_instance();
 	}
 
 	public static function get_options() {
@@ -70,10 +76,18 @@ class Article_TTS_Plugin {
 
 	public static function get_default_options() {
 		return array(
-			'api_key'           => '',
-			// Charlie (locker, Podcast/Conversational) — funktioniert mit eleven_multilingual_v2 auch auf DE.
-			'default_voice_id'  => 'IKne3meq5aSn9XLyUdCD',
-			'model_id'          => 'eleven_multilingual_v2',
+			// Address and token of the DC-IO instance. There is no sensible
+			// default: the address is the customer's own tenant domain, and
+			// tenancy is resolved from it — a wrong host means the token is
+			// looked up in a foreign database and simply is not found.
+			'api_base_url'      => '',
+			'api_token'         => '',
+			// Empty, not a curated id. Voices come from the connected instance
+			// now, and a hard-coded default would point at a voice the customer
+			// may not have.
+			'default_voice_id'  => '',
+			'model_id'          => '',
+			'language'          => 'de',
 			'enabled_post_types' => array( 'post' ),
 			'player_position'   => 'before',
 			'include_title'     => 1,
@@ -87,84 +101,44 @@ class Article_TTS_Plugin {
 	/**
 	 * Resolve a voice ID to a human-readable label.
 	 *
+	 * Delegates to the catalogue the connected instance reports; there is no
+	 * curated list in the plugin any more.
+	 *
 	 * @param string $voice_id Voice ID to look up.
-	 * @return string Voice name from the curated list, "Eigene Stimme" for
-	 *                anything not in the list, or a dash for empty input.
+	 * @return string
 	 */
 	public static function get_voice_label( $voice_id ) {
-		if ( '' === (string) $voice_id ) {
-			return '—';
-		}
-		foreach ( Article_TTS_API::get_recommended_voices() as $voice ) {
-			if ( $voice['id'] === $voice_id ) {
-				return $voice['name'];
-			}
-		}
-		return __( 'Eigene Stimme', 'article-tts' );
+		return Article_TTS_Voices::voice_label( $voice_id );
 	}
 
 	/**
 	 * Render the <option>/<optgroup> markup for a voice <select>.
 	 *
 	 * The caller is responsible for the surrounding <select name="…"> tag.
-	 * Only the curated/recommended voices are offered; any previously stored
-	 * value not in that list is shown as a "Manuell:" fallback so it is not
-	 * silently lost.
+	 * Delegates to the catalogue of the connected instance; a stored value the
+	 * catalogue no longer offers is kept rather than silently swapped for another
+	 * voice.
 	 *
 	 * @param string $selected    Currently selected voice ID.
 	 * @param string $empty_label Label for the first "no selection" option.
 	 */
 	public static function render_voice_options( $selected, $empty_label = '' ) {
-		if ( '' === $empty_label ) {
-			$empty_label = __( '— keine —', 'article-tts' );
-		}
-		printf(
-			'<option value="">%s</option>',
-			esc_html( $empty_label )
-		);
-
-		$recommended = Article_TTS_API::get_recommended_voices();
-		$labels      = Article_TTS_API::get_recommended_voice_group_labels();
-		$rec_ids     = wp_list_pluck( $recommended, 'id' );
-
-		$grouped = array();
-		foreach ( $recommended as $voice ) {
-			$grouped[ $voice['group'] ][] = $voice;
-		}
-
-		foreach ( $grouped as $group_key => $voices ) {
-			usort(
-				$voices,
-				static function ( $a, $b ) {
-					return strnatcasecmp( $a['name'], $b['name'] );
-				}
-			);
-			$label = isset( $labels[ $group_key ] ) ? $labels[ $group_key ] : $group_key;
-			printf( '<optgroup label="%s">', esc_attr( $label ) );
-			foreach ( $voices as $voice ) {
-				printf(
-					'<option value="%1$s" %2$s>%3$s</option>',
-					esc_attr( $voice['id'] ),
-					selected( $selected, $voice['id'], false ),
-					esc_html( $voice['name'] )
-				);
-			}
-			echo '</optgroup>';
-		}
-
-		if ( $selected && ! in_array( $selected, $rec_ids, true ) ) {
-			printf(
-				'<option value="%1$s" selected>%2$s</option>',
-				esc_attr( $selected ),
-				esc_html__( 'Eigene Stimme', 'article-tts' )
-			);
-		}
+		Article_TTS_Voices::render_options( $selected, $empty_label );
 	}
 
 	public static function activate() {
 		$existing = get_option( ARTICLE_TTS_OPTION_KEY );
 		if ( ! is_array( $existing ) ) {
 			update_option( ARTICLE_TTS_OPTION_KEY, self::get_default_options() );
+
+			// A fresh install has nothing to migrate. Marking it now keeps the
+			// upgrade steps from ever looking at this site.
+			require_once ARTICLE_TTS_PATH . 'includes/class-upgrade.php';
+			update_option(
+				Article_TTS_Upgrade::DB_VERSION_OPTION,
+				Article_TTS_Upgrade::DB_VERSION,
+				false
+			);
 		}
 
 		$uploads = wp_upload_dir();
@@ -184,5 +158,18 @@ class Article_TTS_Plugin {
 }
 
 register_activation_hook( __FILE__, array( 'Article_TTS_Plugin', 'activate' ) );
+
+/**
+ * Leave no scheduled event behind. A cron hook whose callback no longer exists
+ * keeps firing on every page load for nothing.
+ */
+register_deactivation_hook(
+	__FILE__,
+	static function () {
+		require_once ARTICLE_TTS_PATH . 'includes/class-cron.php';
+require_once ARTICLE_TTS_PATH . 'includes/class-upgrade.php';
+		Article_TTS_Cron::unschedule();
+	}
+);
 
 add_action( 'plugins_loaded', array( 'Article_TTS_Plugin', 'get_instance' ) );

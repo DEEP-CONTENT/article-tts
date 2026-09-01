@@ -1,6 +1,18 @@
 <?php
 /**
- * Generator: extract text from a post, call ElevenLabs API, store audio file.
+ * Extract text from a post, hand it to DC-IO, collect the audio.
+ *
+ * The old flow was one blocking call: text in, MP3 bytes out, done inside a
+ * single admin request. Synthesis is now asynchronous — a long article is split,
+ * synthesised in parts and mastered into one file, which takes minutes — so the
+ * work is split into three moments that no longer share a request:
+ *
+ *   submit()  hands the article over and stores a job id
+ *   poll()    asks how far it is
+ *   ingest()  downloads the finished audio into the uploads directory
+ *
+ * What did NOT change is where the audio ends up. The player still reads
+ * `_article_tts_audio_url`, so everything already generated keeps working.
  *
  * @package Article_TTS
  */
@@ -19,23 +31,62 @@ class Article_TTS_Generator {
 	const META_SIZE      = '_article_tts_audio_size';
 	const META_OVERRIDE  = '_article_tts_voice_override';
 
+	/** Job state, all of it new with the asynchronous flow. */
+	const META_JOB_ID     = '_article_tts_job_id';
+	const META_JOB_STATUS = '_article_tts_job_status';
+	const META_JOB_ERROR  = '_article_tts_job_error';
+	const META_JOB_START  = '_article_tts_job_requested';
+	const META_JOB_CHUNKS = '_article_tts_job_chunks';
+	const META_JOB_DONE   = '_article_tts_job_done';
+
 	/**
-	 * Generate audio for a given post.
+	 * Die Fassung, die tatsaechlich abgeschickt wurde.
 	 *
-	 * @param int $post_id Post ID.
-	 * @return array|WP_Error On success: ['url','generated','voice','size','hash','skipped'?].
+	 * `ingest()` rechnete Pruefsumme und Stimme aus dem Artikel neu, wie er im
+	 * Augenblick des Abholens dasteht. Wer waehrend der laufenden Vertonung noch
+	 * einen Tippfehler korrigiert, bekam damit Audio des alten Textes, dem die
+	 * Pruefsumme des neuen anhing — und `is_stale()` verglich den Wert fortan
+	 * gegen sich selbst und meldete nie wieder etwas.
 	 */
-	public static function generate( $post_id ) {
+	const META_JOB_HASH  = '_article_tts_job_hash';
+	const META_JOB_VOICE = '_article_tts_job_voice';
+
+	/**
+	 * Which formula produced `_article_tts_audio_hash`.
+	 *
+	 * 1 = the provider-era md5. 2 = the current sha256, computed identically on
+	 * both sides of the API. Without this marker every already-generated article
+	 * would compare a v1 hash against a v2 hash, come out different, and be
+	 * flagged stale — a paid mass re-rendering nobody asked for.
+	 */
+	const META_HASH_VERSION = '_article_tts_hash_v';
+	const HASH_VERSION      = 2;
+
+	/** Job states that mean "nothing more is coming". */
+	const TERMINAL = array( 'completed', 'failed', 'expired' );
+
+	/**
+	 * Hand a post to DC-IO.
+	 *
+	 * @param int $post_id
+	 * @return array|WP_Error ['job_id','job_status','chunks','replayed'].
+	 */
+	public static function submit( $post_id ) {
 		$post_id = (int) $post_id;
 		$post    = get_post( $post_id );
+
 		if ( ! $post ) {
 			return new WP_Error( 'article_tts_no_post', __( 'Post nicht gefunden.', 'article-tts' ) );
 		}
 
 		$options = Article_TTS_Plugin::get_options();
+		$client  = self::client( $options );
 
-		if ( empty( $options['api_key'] ) ) {
-			return new WP_Error( 'article_tts_no_key', __( 'API-Key fehlt. Bitte in den Einstellungen hinterlegen.', 'article-tts' ) );
+		if ( ! $client->is_configured() ) {
+			return new WP_Error(
+				'article_tts_not_configured',
+				__( 'Adresse und Token für Heise I/O fehlen. Bitte in den Einstellungen hinterlegen.', 'article-tts' )
+			);
 		}
 
 		$voice_id = self::resolve_voice_id( $post_id, $options );
@@ -43,84 +94,378 @@ class Article_TTS_Generator {
 			return new WP_Error( 'article_tts_no_voice', __( 'Keine Standard-Stimme konfiguriert und kein Post-Override gesetzt.', 'article-tts' ) );
 		}
 
-		$text = self::build_text( $post, $options );
+		$unknown_voice = self::unknown_voice( $voice_id, $post_id );
+		if ( $unknown_voice ) {
+			return $unknown_voice;
+		}
+
+		// Not a nicety. A submit without a model is rejected downstream, and the
+		// only thing that reaches the editor is the category "text_rejected" —
+		// which sends everyone to read the article, where nothing is wrong.
+		if ( '' === (string) $options['model_id'] ) {
+			return new WP_Error(
+				'article_tts_no_model',
+				__( 'Es ist kein Modell ausgewählt. Ohne Modell lehnt der Sprachdienst die Vertonung ab — bitte in den Einstellungen unter „Stimme" ein Modell wählen und speichern.', 'article-tts' )
+			);
+		}
+
+		// GEREINIGT VOR DEM NORMALISIEREN, und nicht darin. `normalize()` ist der
+		// zeichengleiche Zwilling von Laravels `ArticleText::normalize()`, und das
+		// muss so bleiben — beide rechnen den Hash, und schon ein Zeichen
+		// Unterschied wird drueben zu „400 content_hash_mismatch".
+		//
+		// Ohne diesen Schritt genuegte EIN ungueltiges Byte — aus einem alten
+		// Import, einer Latin-1-Einfuegung — um den ganzen Artikel zu
+		// verschlucken: `preg_replace` mit `/u` gibt darauf NULL zurueck, der
+		// `(string)`-Cast macht daraus '', und die Meldung unten sagte dann „Der
+		// zusammengesetzte Artikeltext ist leer." Ein Redakteur schaut daraufhin
+		// in einen Artikel voller Text und findet nichts, was leer waere.
+		//
+		// Die Paritaet bleibt unberuehrt: gesendet wird der bereits gereinigte und
+		// normalisierte Text, die Gegenseite normalisiert also dasselbe noch
+		// einmal — und das ist idempotent.
+		$text = self::hashable_text( $post, $options );
 		if ( '' === $text ) {
 			return new WP_Error( 'article_tts_empty_text', __( 'Der zusammengesetzte Artikeltext ist leer.', 'article-tts' ) );
 		}
 
-		$hash          = md5( $voice_id . '|' . $options['model_id'] . '|' . $text );
-		$existing_hash = get_post_meta( $post_id, self::META_HASH, true );
-		$existing_path = get_post_meta( $post_id, self::META_PATH, true );
+		$hash = self::content_hash( $text, $voice_id, $options['model_id'], $options['language'] );
 
-		if ( $existing_hash === $hash && $existing_path && file_exists( $existing_path ) ) {
-			return array(
-				'url'       => get_post_meta( $post_id, self::META_URL, true ),
-				'voice'     => $voice_id,
-				'generated' => (int) get_post_meta( $post_id, self::META_GENERATED, true ),
-				'size'      => (int) get_post_meta( $post_id, self::META_SIZE, true ),
-				'hash'      => $hash,
-				'skipped'   => true,
-			);
+		$response = $client->submit_article(
+			array(
+				'text'        => $text,
+				'language'    => $options['language'],
+				'voiceId'     => $voice_id,
+				'modelId'     => '' !== $options['model_id'] ? $options['model_id'] : null,
+				'siteId'      => self::site_id(),
+				'externalId'  => (string) $post_id,
+				'contentHash' => $hash,
+				'title'       => get_the_title( $post ),
+			),
+			self::idempotency_key( $post_id, $hash )
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
 		}
 
-		$api   = new Article_TTS_API( $options['api_key'] );
-		$audio = $api->text_to_speech( $text, $voice_id, $options['model_id'] );
-
-		if ( is_wp_error( $audio ) ) {
-			return $audio;
+		$job_id = isset( $response['jobId'] ) ? (string) $response['jobId'] : '';
+		if ( '' === $job_id ) {
+			return new WP_Error( 'article_tts_no_job', __( 'Heise I/O hat keine Job-ID zurückgegeben.', 'article-tts' ) );
 		}
 
-		$saved = self::save_audio_file( $post_id, $audio, $hash );
-		if ( is_wp_error( $saved ) ) {
-			return $saved;
-		}
-
-		// Remove old file if it differs from the new one.
-		if ( $existing_path && $existing_path !== $saved['path'] && file_exists( $existing_path ) ) {
-			@unlink( $existing_path );
-		}
-
-		$now = time();
-		update_post_meta( $post_id, self::META_URL, $saved['url'] );
-		update_post_meta( $post_id, self::META_PATH, $saved['path'] );
-		update_post_meta( $post_id, self::META_GENERATED, $now );
-		update_post_meta( $post_id, self::META_VOICE, $voice_id );
-		update_post_meta( $post_id, self::META_HASH, $hash );
-		update_post_meta( $post_id, self::META_SIZE, $saved['size'] );
+		// ERST die Pruefsumme, DANN die Job-Id. `ingest()` steigt ohne Job-Id aus,
+		// eine Pruefsumme ohne Job-Id ist also wirkungslos — umgekehrt truege ein
+		// Abbruch zwischen den Zeilen dem neuen Auftrag die Pruefsumme des alten
+		// an, und der Rueckfall griffe nicht, weil ja ein Wert dasteht.
+		update_post_meta( $post_id, self::META_JOB_HASH, $hash );
+		update_post_meta( $post_id, self::META_JOB_VOICE, $voice_id );
+		update_post_meta( $post_id, self::META_JOB_ID, $job_id );
+		update_post_meta( $post_id, self::META_JOB_STATUS, isset( $response['jobStatus'] ) ? $response['jobStatus'] : 'queued' );
+		update_post_meta( $post_id, self::META_JOB_CHUNKS, isset( $response['chunkCount'] ) ? (int) $response['chunkCount'] : 0 );
+		update_post_meta( $post_id, self::META_JOB_START, time() );
+		delete_post_meta( $post_id, self::META_JOB_ERROR );
 
 		return array(
-			'url'       => $saved['url'],
-			'voice'     => $voice_id,
-			'generated' => $now,
-			'size'      => $saved['size'],
-			'hash'      => $hash,
-			'skipped'   => false,
+			'job_id'     => $job_id,
+			'job_status' => get_post_meta( $post_id, self::META_JOB_STATUS, true ),
+			'chunks'     => (int) get_post_meta( $post_id, self::META_JOB_CHUNKS, true ),
+			'replayed'   => isset( $response['status'] ) && 200 === (int) $response['status'],
 		);
 	}
 
 	/**
-	 * Delete audio file and meta for a post.
+	 * Ask DC-IO how far the rendition is, and store what came back.
 	 *
-	 * @param int $post_id Post ID.
-	 * @return bool True if anything was deleted.
+	 * @param int $post_id
+	 * @return array|WP_Error ['job_status','done','total','terminal','error'].
+	 */
+	public static function poll( $post_id ) {
+		$post_id = (int) $post_id;
+		$job_id  = (string) get_post_meta( $post_id, self::META_JOB_ID, true );
+
+		if ( '' === $job_id ) {
+			return new WP_Error( 'article_tts_no_job', __( 'Für diesen Beitrag läuft keine Vertonung.', 'article-tts' ) );
+		}
+
+		$options  = Article_TTS_Plugin::get_options();
+		$response = self::client( $options )->get_job( $job_id );
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$status = isset( $response['jobStatus'] ) ? (string) $response['jobStatus'] : '';
+		update_post_meta( $post_id, self::META_JOB_STATUS, $status );
+
+		$done  = isset( $response['progress']['done'] ) ? (int) $response['progress']['done'] : 0;
+		$total = isset( $response['progress']['total'] ) ? (int) $response['progress']['total'] : 0;
+		update_post_meta( $post_id, self::META_JOB_DONE, $done );
+
+		if ( 'failed' === $status || 'expired' === $status ) {
+			update_post_meta(
+				$post_id,
+				self::META_JOB_ERROR,
+				isset( $response['errorCategory'] ) ? (string) $response['errorCategory'] : 'unknown'
+			);
+		}
+
+		return array(
+			'job_status' => $status,
+			'done'       => $done,
+			'total'      => $total,
+			'terminal'   => in_array( $status, self::TERMINAL, true ),
+			'error'      => (string) get_post_meta( $post_id, self::META_JOB_ERROR, true ),
+		);
+	}
+
+	/**
+	 * Download the finished audio and make it the post's audio version.
+	 *
+	 * The hash is written LAST, together with the url: it is what the editor's
+	 * "up to date" indicator reads, and a half-written state must never look
+	 * current.
+	 *
+	 * @param int $post_id
+	 * @return array|WP_Error ['url','size','generated','voice','hash'].
+	 */
+	public static function ingest( $post_id ) {
+		$post_id = (int) $post_id;
+		$post    = get_post( $post_id );
+		$job_id  = (string) get_post_meta( $post_id, self::META_JOB_ID, true );
+
+		if ( ! $post || '' === $job_id ) {
+			return new WP_Error( 'article_tts_no_job', __( 'Für diesen Beitrag läuft keine Vertonung.', 'article-tts' ) );
+		}
+
+		$options = Article_TTS_Plugin::get_options();
+
+		// AUS DEM ABSENDEN, nicht aus dem Artikel, wie er jetzt dasteht: Was
+		// hier ankommt, ist die Vertonung des Textes von damals. Rechnete man
+		// beides neu, truege sie die Pruefsumme einer Fassung, die nie
+		// gesprochen wurde — und `is_stale()` verglich diesen Wert danach gegen
+		// sich selbst.
+		$hash     = (string) get_post_meta( $post_id, self::META_JOB_HASH, true );
+		$voice_id = (string) get_post_meta( $post_id, self::META_JOB_VOICE, true );
+
+		// Ein Auftrag, der beim Update dieses Plugins schon unterwegs war, hat
+		// die beiden Werte nicht. Fuer ihn bleibt es beim Nachrechnen — das ist
+		// dieselbe Ungenauigkeit wie bisher und besser als ein Abbruch.
+		if ( '' === $hash ) {
+			$text     = self::hashable_text( $post, $options );
+			$voice_id = self::resolve_voice_id( $post_id, $options );
+			$hash     = self::content_hash( $text, $voice_id, $options['model_id'], $options['language'] );
+		} elseif ( '' === $voice_id ) {
+			$voice_id = self::resolve_voice_id( $post_id, $options );
+		}
+
+		$target = self::audio_target( $post_id, $hash );
+		if ( is_wp_error( $target ) ) {
+			return $target;
+		}
+
+		$size = self::client( $options )->download_audio( $job_id, $target['path'] );
+		if ( is_wp_error( $size ) ) {
+			return $size;
+		}
+
+		$previous = get_post_meta( $post_id, self::META_PATH, true );
+		if ( $previous && $previous !== $target['path'] && file_exists( $previous ) ) {
+			@unlink( $previous );
+		}
+
+		// Die Herkunft fällt zurück auf „im Editor erzeugt". Das ist die
+		// Gegenrichtung zu §6.5 und genauso nötig: bliebe `_article_tts_source`
+		// auf `dcio` stehen, überspränge `is_stale()` diese frisch erzeugte
+		// Fassung für immer, und eine spätere Textänderung meldete sich nie.
+		foreach ( Article_TTS_Deliveries::meta_keys() as $key ) {
+			delete_post_meta( $post_id, $key );
+		}
+
+		$now = time();
+		update_post_meta( $post_id, self::META_URL, $target['url'] );
+		update_post_meta( $post_id, self::META_PATH, $target['path'] );
+		update_post_meta( $post_id, self::META_GENERATED, $now );
+		update_post_meta( $post_id, self::META_VOICE, $voice_id );
+		update_post_meta( $post_id, self::META_SIZE, $size );
+		update_post_meta( $post_id, self::META_HASH_VERSION, self::HASH_VERSION );
+		update_post_meta( $post_id, self::META_HASH, $hash );
+
+		return array(
+			'url'       => $target['url'],
+			'size'      => $size,
+			'generated' => $now,
+			'voice'     => $voice_id,
+			'hash'      => $hash,
+		);
+	}
+
+	/**
+	 * Delete audio, job state and meta for a post.
+	 *
+	 * @param int $post_id
+	 * @return bool
 	 */
 	public static function delete( $post_id ) {
 		$post_id = (int) $post_id;
 		$path    = get_post_meta( $post_id, self::META_PATH, true );
+
 		if ( $path && file_exists( $path ) ) {
 			@unlink( $path );
 		}
-		delete_post_meta( $post_id, self::META_URL );
-		delete_post_meta( $post_id, self::META_PATH );
-		delete_post_meta( $post_id, self::META_GENERATED );
-		delete_post_meta( $post_id, self::META_VOICE );
-		delete_post_meta( $post_id, self::META_HASH );
-		delete_post_meta( $post_id, self::META_SIZE );
+
+		$job_id = (string) get_post_meta( $post_id, self::META_JOB_ID, true );
+		if ( '' !== $job_id ) {
+			// Best effort: a rendition still running answers 409 and is left
+			// alone. Its own deadline ends it either way.
+			self::client( Article_TTS_Plugin::get_options() )->delete_job( $job_id );
+		}
+
+		$keys = array_merge(
+			array(
+				self::META_URL,
+				self::META_PATH,
+				self::META_GENERATED,
+				self::META_VOICE,
+				self::META_HASH,
+				self::META_SIZE,
+				self::META_HASH_VERSION,
+				self::META_JOB_ID,
+				self::META_JOB_STATUS,
+				self::META_JOB_ERROR,
+				self::META_JOB_START,
+				self::META_JOB_CHUNKS,
+				self::META_JOB_DONE,
+				self::META_JOB_HASH,
+				self::META_JOB_VOICE,
+			),
+			// Die Spuren einer Zustellung gehen mit. Bliebe die Herkunft stehen,
+			// hielte `is_stale()` die NÄCHSTE, im Editor erzeugte Fassung für eine
+			// gelieferte und verglichen würde nie wieder etwas.
+			Article_TTS_Deliveries::meta_keys()
+		);
+
+		foreach ( $keys as $key ) {
+			delete_post_meta( $post_id, $key );
+		}
+
 		return true;
 	}
 
 	/**
+	 * Is the stored audio still the one this article would produce?
+	 *
+	 * Only ever compares within one hash version. An article rendered by the
+	 * previous provider is NOT stale — it is simply older, and re-rendering it
+	 * costs money for a result nobody asked to change.
+	 */
+	public static function is_stale( $post_id, $post = null ) {
+		$post_id = (int) $post_id;
+
+		// Eine aus DC-IO gelieferte Fassung hat KEINE zum Artikeltext passende
+		// Prüfsumme: sie ist an einem Text entstanden, der hier nie stand.
+		// Verglichen würde sie deshalb bei jedem Artikel und dauerhaft als
+		// veraltet gemeldet, ohne dass irgendetwas falsch wäre. Behandelt wie die
+		// Altbestände aus der Anbieter-Umstellung: nicht vergleichen, sondern in
+		// der Box sagen, woher sie kommt (§6.2).
+		if ( Article_TTS_Deliveries::is_delivered( $post_id ) ) {
+			return false;
+		}
+
+		$stored = (string) get_post_meta( $post_id, self::META_HASH, true );
+
+		if ( '' === $stored ) {
+			return false;
+		}
+
+		if ( (int) get_post_meta( $post_id, self::META_HASH_VERSION, true ) !== self::HASH_VERSION ) {
+			return false;
+		}
+
+		$post    = $post ? $post : get_post( $post_id );
+		$options = Article_TTS_Plugin::get_options();
+
+		$current = self::content_hash(
+			self::hashable_text( $post, $options ),
+			self::resolve_voice_id( $post_id, $options ),
+			$options['model_id'],
+			$options['language']
+		);
+
+		return $stored !== $current;
+	}
+
+	/**
+	 * Der Text, ueber den die Pruefsumme laeuft — an genau EINER Stelle gebildet.
+	 *
+	 * Vorher stand die Formel dreimal da, und zwei der drei waren gleich: Nur
+	 * `submit()` reinigte mit `wp_check_invalid_utf8()` (seit afd84df, wo ein
+	 * einzelnes ungueltiges Byte den ganzen Artikel verschluckte), `ingest()` und
+	 * `is_stale()` taten es nicht. Auffallen konnte das nicht, solange `ingest()`
+	 * die Pruefsumme selbst nachrechnete: Sie und `is_stale()` benutzten dieselbe
+	 * ungereinigte Formel, verglichen also Gleiches mit Gleichem.
+	 *
+	 * Seit die Pruefsumme aus dem Absenden stammt, waeren es zwei Formeln — und
+	 * ein Artikel mit einem ungueltigen Byte in Titel oder Excerpt gaelte
+	 * DAUERHAFT als veraltet: Der Redakteur vertont neu, es kostet jedes Mal, und
+	 * der Hinweis geht nie weg. Deshalb rechnen jetzt alle drei denselben Text.
+	 *
+	 * @param WP_Post $post
+	 * @param array   $options
+	 * @return string
+	 */
+	private static function hashable_text( $post, $options ) {
+		return self::normalize( wp_check_invalid_utf8( self::build_text( $post, $options ), true ) );
+	}
+
+	/**
+	 * The identity of a rendition — computed identically on both sides.
+	 *
+	 * DC-IO recomputes this from the text it receives and refuses a mismatch, so
+	 * this formula and {@see normalize()} are a contract, not an implementation
+	 * detail. Changing either one is a breaking change and needs a new version
+	 * prefix rather than an edit in place.
+	 *
+	 * This used to exist twice — here and in the metabox — which is precisely how
+	 * two copies of a formula drift.
+	 */
+	public static function content_hash( $normalized_text, $voice_id, $model_slug, $language ) {
+		return hash(
+			'sha256',
+			implode(
+				'|',
+				array(
+					(string) self::HASH_VERSION,
+					(string) $voice_id,
+					(string) $model_slug,
+					(string) $language,
+					(string) $normalized_text,
+				)
+			)
+		);
+	}
+
+	/**
+	 * The four normalisation rules DC-IO applies before hashing.
+	 *
+	 * Ported deliberately verbatim rather than reimplemented: any difference
+	 * between the two shows up as `content_hash_mismatch` on every submit, and
+	 * the cause would sit in whitespace nobody can see.
+	 */
+	public static function normalize( $text ) {
+		$text = str_replace( array( "\r\n", "\r" ), "\n", (string) $text );
+		$text = (string) preg_replace( '/\h+/u', ' ', $text );
+		$text = (string) preg_replace( '/ *\n */u', "\n", $text );
+		$text = (string) preg_replace( '/\n{3,}/u', "\n\n", $text );
+
+		return trim( $text );
+	}
+
+	/**
 	 * Build the plain text payload from a post according to settings.
+	 *
+	 * Unchanged from the provider era — it never had anything to do with the
+	 * vendor.
 	 *
 	 * @param WP_Post $post    Post object.
 	 * @param array   $options Plugin options.
@@ -177,6 +522,58 @@ class Article_TTS_Generator {
 	 * @param array $options Plugin options.
 	 * @return string Voice ID (may be empty).
 	 */
+	/**
+	 * Refuse a voice the instance does not have, BEFORE anything is submitted.
+	 *
+	 * An installation upgraded from the provider era still carries the old
+	 * vendor's voice id. It is meaningless to io-tts, which answers 422, which
+	 * arrives back here as the category `text_rejected` — a phrase that sends
+	 * everyone looking at the article text, where nothing is wrong. Worse, the
+	 * job is created and counted before it fails.
+	 *
+	 * Only refuses when a catalogue is actually known. If the connection is down
+	 * the list is empty, and refusing then would block a perfectly good voice
+	 * over a temporary outage.
+	 *
+	 * Which of the two places is at fault matters. An article carries its own
+	 * optional voice, and that one WINS over the setting — so changing the
+	 * default in the settings screen fixes nothing while a leftover override
+	 * sits on the article. The message therefore names the place to go.
+	 *
+	 * @param string $voice_id Already resolved: override first, then default.
+	 * @param int    $post_id
+	 * @return WP_Error|null Error when the voice is certainly wrong, else null.
+	 */
+	private static function unknown_voice( $voice_id, $post_id ) {
+		$catalog = Article_TTS_Voices::voices();
+
+		if ( empty( $catalog ) ) {
+			return null;
+		}
+
+		foreach ( $catalog as $voice ) {
+			if ( isset( $voice['id'] ) && (string) $voice['id'] === $voice_id ) {
+				return null;
+			}
+		}
+
+		$from_override = (string) get_post_meta( $post_id, self::META_OVERRIDE, true ) === $voice_id;
+
+		$where = $from_override
+			? __( 'Sie steht bei diesem Artikel unter „Stimme (optional, überschreibt Standard)" und gilt dort vor der Einstellung — bitte dort eine andere wählen oder auf „Standard verwenden" stellen.', 'article-tts' )
+			: __( 'Sie ist als Standard-Stimme hinterlegt — bitte in den Einstellungen eine Stimme auswählen und speichern.', 'article-tts' );
+
+		return new WP_Error(
+			'article_tts_unknown_voice',
+			sprintf(
+				/* translators: 1: the configured voice id, 2: where it is configured */
+				__( 'Die gewählte Stimme (%1$s) gibt es auf dieser Instanz nicht — das bleibt nach der Umstellung von der früheren Anbindung übrig. %2$s', 'article-tts' ),
+				$voice_id,
+				$where
+			)
+		);
+	}
+
 	public static function resolve_voice_id( $post_id, $options ) {
 		$override = get_post_meta( $post_id, self::META_OVERRIDE, true );
 		if ( $override ) {
@@ -186,38 +583,79 @@ class Article_TTS_Generator {
 	}
 
 	/**
-	 * Persist audio bytes to uploads/article-tts/.
+	 * Deterministic, and derived from the CONTENT rather than the post id.
 	 *
-	 * @param int    $post_id Post ID.
-	 * @param string $audio   Binary mp3 data.
-	 * @param string $hash    Content hash.
-	 * @return array|WP_Error ['path','url','size'] or error.
+	 * A key built from the post id alone would make an edited article replay the
+	 * previous rendition — the reader would hear the old text. Tied to the hash,
+	 * a changed article is a different request, and an unchanged retry is the
+	 * same one.
+	 *
+	 * The format is constrained by the receiving side: at most 128 characters and
+	 * `[A-Za-z0-9._:-]` only. A key outside that is IGNORED rather than rejected,
+	 * which would silently cost a second rendition per retry.
 	 */
-	private static function save_audio_file( $post_id, $audio, $hash ) {
+	private static function idempotency_key( $post_id, $hash ) {
+		return sprintf( 'atts:%s:%d:%s', substr( self::site_id(), 0, 8 ), (int) $post_id, substr( $hash, 0, 32 ) );
+	}
+
+	/**
+	 * A stable identifier for this installation.
+	 *
+	 * Derived from the site URL rather than stored, so it survives a database
+	 * copy without two installations claiming the same identity — and it changes
+	 * when the site moves, which is the honest outcome: the renditions belong to
+	 * the old address.
+	 */
+	public static function site_id() {
+		return substr( hash( 'sha256', (string) get_site_url() ), 0, 16 );
+	}
+
+	private static function client( $options ) {
+		return new Article_TTS_Client( $options['api_base_url'], $options['api_token'] );
+	}
+
+	/**
+	 * Where the MP3 goes. Unchanged layout, so existing files keep their place.
+	 *
+	 * @param int    $post_id
+	 * @param string $hash
+	 * @return array|WP_Error ['path','url']
+	 */
+	private static function audio_target( $post_id, $hash ) {
+		return self::audio_target_for( $post_id, substr( $hash, 0, 8 ) );
+	}
+
+	/**
+	 * Dasselbe Verzeichnis, ein anderes Namenssuffix.
+	 *
+	 * Öffentlich, weil eine ZUSTELLUNG hier ebenfalls landet und dafür kein
+	 * zweites Mal Verzeichnis, .htaccess und Fehlerbehandlung geschrieben werden
+	 * sollen. Ihr Suffix leitet sich nicht aus einer Prüfsumme ab, sondern aus
+	 * der Kennung der Zustellung. Eine gelieferte Fassung hat keine Prüfsumme
+	 * (§6.1).
+	 *
+	 * @param int    $post_id
+	 * @param string $suffix Bereits gekürzt; wandert unverändert in den Dateinamen.
+	 * @return array|WP_Error ['path','url']
+	 */
+	public static function audio_target_for( $post_id, $suffix ) {
 		$uploads = wp_upload_dir();
 		if ( ! empty( $uploads['error'] ) ) {
 			return new WP_Error( 'article_tts_upload_dir', $uploads['error'] );
 		}
+
 		$dir = trailingslashit( $uploads['basedir'] ) . ARTICLE_TTS_UPLOAD_SUBDIR;
 		if ( ! file_exists( $dir ) ) {
 			if ( ! wp_mkdir_p( $dir ) ) {
 				return new WP_Error( 'article_tts_mkdir', __( 'Konnte Upload-Verzeichnis nicht anlegen.', 'article-tts' ) );
 			}
 		}
-		$filename = sprintf( 'post-%d-%s.mp3', (int) $post_id, substr( $hash, 0, 8 ) );
-		$path     = $dir . '/' . $filename;
 
-		$bytes = file_put_contents( $path, $audio );
-		if ( false === $bytes ) {
-			return new WP_Error( 'article_tts_write', __( 'Konnte Audio-Datei nicht schreiben.', 'article-tts' ) );
-		}
-
-		$url = trailingslashit( $uploads['baseurl'] ) . ARTICLE_TTS_UPLOAD_SUBDIR . '/' . $filename;
+		$filename = sprintf( 'post-%d-%s.mp3', (int) $post_id, $suffix );
 
 		return array(
-			'path' => $path,
-			'url'  => $url,
-			'size' => $bytes,
+			'path' => $dir . '/' . $filename,
+			'url'  => trailingslashit( $uploads['baseurl'] ) . ARTICLE_TTS_UPLOAD_SUBDIR . '/' . $filename,
 		);
 	}
 }

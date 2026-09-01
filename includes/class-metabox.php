@@ -73,70 +73,263 @@ class Article_TTS_Metabox {
 				'nonce'   => wp_create_nonce( 'article_tts_nonce' ),
 				'i18n'    => array(
 					'confirmDelete' => __( 'Audio-Datei dauerhaft löschen?', 'article-tts' ),
-					'generating'    => __( 'Generiere Audio…', 'article-tts' ),
+					'submitting'    => __( 'Übergebe Artikel…', 'article-tts' ),
+					'generating'    => __( 'Vertonung läuft…', 'article-tts' ),
+					/* translators: 1: finished sections, 2: total sections */
+					'progress'      => __( 'Abschnitt %1$s von %2$s', 'article-tts' ),
+					'background'    => __( 'Die Vertonung läuft im Hintergrund weiter. Das Audio erscheint automatisch, sobald es fertig ist.', 'article-tts' ),
 					'deleting'      => __( 'Lösche…', 'article-tts' ),
 					'failed'        => __( 'Fehler', 'article-tts' ),
 					'success'       => __( 'Erfolgreich.', 'article-tts' ),
-					'skipped'       => __( 'Audio ist bereits aktuell — keine neue API-Anfrage.', 'article-tts' ),
+					'deleted'       => __( 'Audio gelöscht.', 'article-tts' ),
+					'generate'      => __( 'Audio generieren', 'article-tts' ),
+					'regenerate'    => __( 'Audio neu generieren', 'article-tts' ),
+					'fetching'      => __( 'Sehe bei Heise I/O nach…', 'article-tts' ),
+					'fetchNone'     => __( 'Für diesen Artikel liegt nichts bereit.', 'article-tts' ),
+					// Derselbe Fund, andere Lage: nichts im Posteingang, aber am
+					// Beitrag hängt bereits Audio. „Liegt nichts bereit" liest sich
+					// dann wie ein Fehlschlag, obwohl alles in Ordnung ist.
+					//
+					// Bewusst eine Aussage über den POSTEINGANG statt über Heise I/O:
+					// ob dort jemand das Projekt geändert und noch nicht gesendet hat,
+					// weiß dieses Plugin nicht. „Du hast die aktuellste Fassung" wäre
+					// ein Versprechen, das es nicht halten kann.
+					'fetchNoneHave' => __( 'Nichts Neues. Die vorhandene Fassung ist die zuletzt gelieferte.', 'article-tts' ),
+					'fetchComposing' => __( 'Die Vertonung wird noch zusammengefügt. Gleich noch einmal versuchen.', 'article-tts' ),
+					'fetchDeferred' => __( 'An diesem Artikel läuft gerade eine eigene Vertonung. Danach wird die Zustellung übernommen.', 'article-tts' ),
+					'fetchTaken'    => __( 'Vertonung aus Heise I/O übernommen.', 'article-tts' ),
+					/* translators: %s: technical reason, e.g. "HTTP 412" */
+					'audioBlocked'  => __( 'Das Audio wurde erzeugt, ließ sich hier aber nicht laden (%s). Nach dem Speichern und Neuladen der Seite ist es abspielbar.', 'article-tts' ),
 				),
 			)
 		);
 	}
 
+	/**
+	 * The status line as a string, because two places need exactly the same one.
+	 *
+	 * The editor sees it rendered by PHP on load, and again the moment a rendition
+	 * finishes — that second time over Ajax, without a reload. Building it in
+	 * JavaScript instead would mean a second implementation of the wording, the
+	 * size formatting and the legacy/stale rules, and the two would drift.
+	 *
+	 * @param WP_Post $post
+	 * @return string Inner HTML of the status paragraph, already escaped.
+	 */
+	public static function status_html( $post ) {
+		$generated = (int) get_post_meta( $post->ID, Article_TTS_Generator::META_GENERATED, true );
+
+		if ( ! $generated ) {
+			return '<em>' . esc_html__( 'Noch keine Audio-Version generiert.', 'article-tts' ) . '</em>';
+		}
+
+		$size      = (int) get_post_meta( $post->ID, Article_TTS_Generator::META_SIZE, true );
+		$delivered = Article_TTS_Deliveries::is_delivered( $post->ID );
+
+		// The formula lives in ONE place now. It used to be repeated here, which
+		// is exactly how two copies of a hash drift apart.
+		$stale  = Article_TTS_Generator::is_stale( $post->ID, $post );
+		$legacy = ! $delivered
+			&& (int) get_post_meta( $post->ID, Article_TTS_Generator::META_HASH_VERSION, true ) !== Article_TTS_Generator::HASH_VERSION;
+
+		$html = '<strong>' . esc_html__( 'Status:', 'article-tts' ) . '</strong> ';
+
+		$html .= sprintf(
+			$delivered
+				/* translators: 1: human-readable age, 2: file size */
+				? esc_html__( 'Geliefert vor %1$s · %2$s', 'article-tts' )
+				/* translators: 1: human-readable age, 2: file size */
+				: esc_html__( 'Generiert vor %1$s · %2$s', 'article-tts' ),
+			// time(), NOT current_time( 'timestamp' ). META_GENERATED is written
+			// with time() — a UTC epoch — while current_time() adds the site's
+			// offset on top. On a UTC+2 site a rendition that had just finished
+			// therefore announced itself as "generiert vor 2 Stunden".
+			esc_html( human_time_diff( $generated, time() ) ),
+			esc_html( size_format( $size ) )
+		);
+
+		$html .= '<br><small>' . esc_html__( 'Stimme:', 'article-tts' ) . ' <strong>'
+			. esc_html( self::voice_name( $post->ID, $delivered ) ) . '</strong></small>';
+
+		$project = (string) get_post_meta( $post->ID, Article_TTS_Deliveries::META_PROJECT, true );
+
+		if ( '' !== $project ) {
+			$html .= '<br><small>' . esc_html__( 'Projekt:', 'article-tts' ) . ' <strong>'
+				. esc_html( $project ) . '</strong></small>';
+		}
+
+		if ( $delivered ) {
+			$html .= '<br><span class="article-tts-note">' . esc_html( self::delivery_note( $post->ID ) ) . '</span>';
+		} elseif ( $legacy ) {
+			$html .= '<br><span class="article-tts-note">'
+				. esc_html__( 'Diese Fassung stammt aus der früheren Anbindung. Sie bleibt spielbar; eine neue Vertonung ist nur nötig, wenn sich der Text geändert hat.', 'article-tts' )
+				. '</span>';
+		} elseif ( $stale ) {
+			$html .= '<br><span class="article-tts-stale">'
+				. esc_html__( 'Artikel wurde nach der Audio-Generierung verändert — neu generieren empfohlen.', 'article-tts' )
+				. '</span>';
+		}
+
+		return $html;
+	}
+
+	/**
+	 * Der Stimmenname, aus der Quelle, die ihn tatsächlich hat.
+	 *
+	 * Eine erzeugte Fassung merkt sich eine Stimmen-KENNUNG und lässt sie durch
+	 * den Katalog auflösen. Eine gelieferte bringt einen NAMEN mit und keine
+	 * Kennung. Durch den Katalog geschlagen ergäbe er „Unbekannte Stimme
+	 * (Otto)", also eine Warnung über etwas völlig Normales.
+	 *
+	 * @param int  $post_id
+	 * @param bool $delivered
+	 * @return string
+	 */
+	private static function voice_name( $post_id, $delivered ) {
+		if ( $delivered ) {
+			$label = (string) get_post_meta( $post_id, Article_TTS_Deliveries::META_VOICE_LABEL, true );
+
+			return '' !== $label ? $label : __( 'Keine Angabe', 'article-tts' );
+		}
+
+		return Article_TTS_Plugin::get_voice_label(
+			get_post_meta( $post_id, Article_TTS_Generator::META_VOICE, true )
+		);
+	}
+
+	/**
+	 * Was an einer gelieferten Fassung gesagt werden muss.
+	 *
+	 * ZWEI SÄTZE, und der zweite nur, wenn er zutrifft. Der erste nennt die
+	 * Herkunft — sie ist zugleich der Grund, warum hier nie „Artikel wurde
+	 * verändert" steht: eine gelieferte Fassung folgt dem Artikeltext nicht und
+	 * wird von is_stale() ausgenommen (§6.2). Der zweite ist der wichtigere: Hat
+	 * die Zustellung eine im Editor erzeugte Fassung ersetzt, hat der Beitrag
+	 * eine Eigenschaft VERLOREN, und das darf nicht unbemerkt umschlagen (§6.5).
+	 *
+	 * @param int $post_id
+	 * @return string
+	 */
+	private static function delivery_note( $post_id ) {
+		// „Heise I/O", wie überall sonst in dieser Oberfläche („Sehe bei Heise I/O
+		// nach…", „Vertonung aus Heise I/O übernommen."). „DC-IO" ist der interne
+		// Name des Dienstes und stand hier als einziger sichtbarer Rest davon —
+		// für einen Redakteur zwei Namen für dieselbe Sache.
+		$note = __( 'Diese Fassung kommt aus Heise I/O.', 'article-tts' );
+
+		$replaced = (int) get_post_meta( $post_id, Article_TTS_Deliveries::META_REPLACED_AT, true );
+
+		if ( $replaced ) {
+			$note .= ' ' . sprintf(
+				/* translators: %s: date the delivery replaced a generated version */
+				__( 'Sie hat am %s eine im Editor erzeugte Fassung ersetzt.', 'article-tts' ),
+				// date_i18n() und nicht date(): der Zeitstempel ist eine
+				// UTC-Epoche, die Anzeige gehört in die Zeitzone der Seite.
+				date_i18n( 'd.m.Y', $replaced )
+			);
+		}
+
+		return $note;
+	}
+
+	/**
+	 * Turn the service's error category into something an editor can act on.
+	 *
+	 * The categories are an API vocabulary, not a message. "text_rejected" in
+	 * particular sends everyone to inspect the article text, where nothing is
+	 * wrong — the usual cause is a voice the instance does not have, left over
+	 * from the previous provider.
+	 *
+	 * An unknown category still prints: a new one on the far side must not turn
+	 * into an empty warning box.
+	 *
+	 * @param string $category
+	 * @return string
+	 */
+	public static function error_sentence( $category ) {
+		switch ( $category ) {
+			case 'text_rejected':
+				return __( 'Die letzte Vertonung wurde abgelehnt. Meist liegt es an der eingestellten Stimme — bitte in den Einstellungen prüfen, ob sie noch angeboten wird.', 'article-tts' );
+			case 'upstream_unreachable':
+				return __( 'Der Sprachdienst war nicht erreichbar. Ein erneuter Versuch lohnt sich.', 'article-tts' );
+			case 'upstream_timeout':
+				return __( 'Der Sprachdienst hat zu lange gebraucht. Ein erneuter Versuch lohnt sich.', 'article-tts' );
+			case 'upstream_failed':
+				return __( 'Der Sprachdienst konnte den Artikel nicht vertonen. Bitte erneut versuchen; bleibt es dabei, wenden Sie sich an Heise I/O.', 'article-tts' );
+			case 'compose_failed':
+				return __( 'Die Teile des Artikels ließen sich nicht zu einer Datei zusammenfügen. Bitte erneut versuchen.', 'article-tts' );
+			case 'job_expired':
+				return __( 'Die Vertonung wurde nicht rechtzeitig fertig und ist abgelaufen. Bitte erneut starten.', 'article-tts' );
+			case 'internal':
+				return __( 'Bei der Vertonung ist ein interner Fehler aufgetreten. Bitte erneut versuchen; bleibt es dabei, wenden Sie sich an Heise I/O.', 'article-tts' );
+		}
+
+		return sprintf(
+			/* translators: %s: error category reported by the service */
+			__( 'Die letzte Vertonung ist fehlgeschlagen (%s).', 'article-tts' ),
+			$category
+		);
+	}
+
 	public function render( $post ) {
 		$options    = Article_TTS_Plugin::get_options();
-		$api_ready  = ! empty( $options['api_key'] );
+		$api_ready  = '' !== $options['api_base_url'] && '' !== $options['api_token'];
 		$generated  = (int) get_post_meta( $post->ID, Article_TTS_Generator::META_GENERATED, true );
 		$url        = get_post_meta( $post->ID, Article_TTS_Generator::META_URL, true );
-		$voice      = get_post_meta( $post->ID, Article_TTS_Generator::META_VOICE, true );
-		$hash       = get_post_meta( $post->ID, Article_TTS_Generator::META_HASH, true );
-		$size       = (int) get_post_meta( $post->ID, Article_TTS_Generator::META_SIZE, true );
 		$override   = get_post_meta( $post->ID, Article_TTS_Generator::META_OVERRIDE, true );
-		$resolved   = Article_TTS_Generator::resolve_voice_id( $post->ID, $options );
-		$current_hash = '';
-		if ( $generated ) {
-			$current_hash = md5( $resolved . '|' . $options['model_id'] . '|' . Article_TTS_Generator::build_text( $post, $options ) );
-		}
-		$stale = $generated && $hash && $current_hash && $hash !== $current_hash;
+
+		// An article that was never saved has no content in the database — and
+		// build_text() reads from there, not from the editor. Rendering it would
+		// either fail as "empty text" or, worse, vertone a stale revision.
+		$unsaved    = in_array( $post->post_status, array( 'auto-draft' ), true );
+
+		$job_status = (string) get_post_meta( $post->ID, Article_TTS_Generator::META_JOB_STATUS, true );
+		$job_error  = (string) get_post_meta( $post->ID, Article_TTS_Generator::META_JOB_ERROR, true );
+		$running    = '' !== $job_status && ! in_array( $job_status, Article_TTS_Generator::TERMINAL, true );
 
 		wp_nonce_field( 'article_tts_metabox', 'article_tts_metabox_nonce' );
 		?>
-		<div class="article-tts-metabox" data-post-id="<?php echo esc_attr( $post->ID ); ?>">
+		<div class="article-tts-metabox" data-post-id="<?php echo esc_attr( $post->ID ); ?>" data-job-pending="<?php echo $running ? '1' : '0'; ?>">
 			<?php if ( ! $api_ready ) : ?>
 				<p class="article-tts-warning">
 					<?php
 					printf(
 						/* translators: %s: settings link */
-						wp_kses_post( __( 'Kein API-Key konfiguriert. Bitte unter %s eintragen.', 'article-tts' ) ),
+						wp_kses_post( __( 'Die Verbindung zu Heise I/O ist nicht eingerichtet. Bitte Adresse und Zugangstoken unter %s eintragen.', 'article-tts' ) ),
 						'<a href="' . esc_url( admin_url( 'options-general.php?page=' . Article_TTS_Settings::PAGE_SLUG ) ) . '">' . esc_html__( 'Einstellungen → Heise I/O Article TTS', 'article-tts' ) . '</a>'
 					);
 					?>
 				</p>
 			<?php endif; ?>
 
-			<p class="article-tts-status">
-				<?php if ( $generated ) : ?>
-					<strong><?php esc_html_e( 'Status:', 'article-tts' ); ?></strong>
-					<?php
-					printf(
-						/* translators: 1: human-readable date, 2: file size */
-						esc_html__( 'Generiert vor %1$s · %2$s', 'article-tts' ),
-						esc_html( human_time_diff( $generated, current_time( 'timestamp' ) ) ),
-						esc_html( size_format( $size ) )
-					);
-					?>
-					<br>
-					<small><?php esc_html_e( 'Stimme:', 'article-tts' ); ?> <strong><?php echo esc_html( Article_TTS_Plugin::get_voice_label( $voice ) ); ?></strong></small>
-					<?php if ( $stale ) : ?>
-						<br><span class="article-tts-stale"><?php esc_html_e( 'Artikel wurde nach der Audio-Generierung verändert — neu generieren empfohlen.', 'article-tts' ); ?></span>
-					<?php endif; ?>
-				<?php else : ?>
-					<em><?php esc_html_e( 'Noch keine Audio-Version generiert.', 'article-tts' ); ?></em>
-				<?php endif; ?>
-			</p>
+			<?php // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- status_html() escapes every part it assembles. ?>
+			<p class="article-tts-status"><?php echo self::status_html( $post ); ?></p>
+
+			<?php if ( $unsaved ) : ?>
+				<p class="article-tts-warning">
+					<?php esc_html_e( 'Bitte den Beitrag zuerst speichern — vertont wird der gespeicherte Text, nicht der im Editor.', 'article-tts' ); ?>
+				</p>
+			<?php endif; ?>
+
+			<?php if ( $running ) : ?>
+				<p class="article-tts-running">
+					<?php esc_html_e( 'Vertonung läuft — das Audio erscheint automatisch, auch wenn Sie diese Seite schließen.', 'article-tts' ); ?>
+				</p>
+			<?php elseif ( '' !== $job_error ) : ?>
+				<p class="article-tts-warning">
+					<?php echo esc_html( self::error_sentence( $job_error ) ); ?>
+				</p>
+			<?php endif; ?>
 
 			<?php if ( $url ) : ?>
-				<audio controls preload="metadata" src="<?php echo esc_url( $url ); ?>" style="width:100%;"></audio>
+				<?php
+					// Die Adresse steht zusaetzlich als Datenattribut, weil der
+					// Player nach dem Laden eine blob:-Quelle traegt (siehe
+					// admin.js). Ohne sie liesse sich nicht feststellen, ob die
+					// gezeigte Datei noch die aktuelle ist.
+					?>
+					<audio controls preload="metadata" src="<?php echo esc_url( $url ); ?>"
+						data-source-url="<?php echo esc_url( $url ); ?>" style="width:100%;"></audio>
 			<?php endif; ?>
 
 			<p>
@@ -146,12 +339,79 @@ class Article_TTS_Metabox {
 				</select>
 			</p>
 
+			<?php
+			// NUR wenn die Liste aus der Notkopie kommt. Im Normalbetrieb ist eine
+			// bis zu zwoelf Stunden alte Liste in Ordnung und muesste hier
+			// niemanden behelligen. Schlaegt der Abruf dagegen fehl, kann sie
+			// beliebig alt sein — und genau das war hier unsichtbar: Den Hinweis
+			// gab es nur auf der Einstellungsseite, die eine Redaktion ohne
+			// Administratorrechte nicht einmal aufrufen kann.
+			//
+			// Erst NACH der Auswahl oben abgefragt: dieser Aufruf ist es, der den
+			// Katalog holt.
+			//
+			// NICHT im unkonfigurierten Zustand: Dann steht ganz oben schon
+			// „Die Verbindung zu Heise I/O ist nicht eingerichtet", und „konnte zuletzt
+			// nicht geladen werden" beschriebe denselben Umstand ein zweites Mal und dazu
+			// falsch — geladen wurde hier noch nie etwas.
+			$catalog_error = Article_TTS_Voices::last_error();
+			$show_note     = $catalog_error instanceof WP_Error
+				&& 'article_tts_not_configured' !== $catalog_error->get_error_code();
+			?>
+			<?php if ( $show_note ) : ?>
+				<?php
+				// Eigene Klasse und NICHT article-tts-warning: admin.js raeumt
+				// nach einer gelungenen Vertonung jedes .article-tts-warning aus
+				// dem Kasten (assets/js/admin.js:146 und :375). Fuer alles, was
+				// sich mit der Vertonung erledigt, ist das richtig. Der Katalog
+				// bleibt davon voellig unberuehrt — der Hinweis waere nach dem
+				// ersten „Audio generieren" verschwunden und der Grund weiter da.
+				?>
+				<p class="article-tts-catalog-note">
+					<?php esc_html_e( 'Die Stimmenliste konnte zuletzt nicht geladen werden — sie ist möglicherweise nicht vollständig. Eine neu freigegebene Stimme fehlt hier dann noch.', 'article-tts' ); ?>
+					<?php
+					// Das Alter erst hier holen: im Normalfall steht dieser Absatz
+					// gar nicht, und dann soll auch keine Option dafuer gelesen
+					// werden.
+					$catalog_age = Article_TTS_Voices::age_sentence();
+					if ( '' !== $catalog_age ) {
+						echo ' ' . esc_html( $catalog_age );
+					}
+					?>
+					<?php if ( current_user_can( 'manage_options' ) ) : ?>
+						<a href="<?php echo esc_url( admin_url( 'options-general.php?page=' . Article_TTS_Settings::PAGE_SLUG ) ); ?>">
+							<?php esc_html_e( 'In den Einstellungen neu laden', 'article-tts' ); ?>
+						</a>
+					<?php endif; ?>
+				</p>
+			<?php endif; ?>
+
 			<p class="article-tts-actions">
-				<button type="button" class="button button-primary" id="article-tts-generate" <?php disabled( ! $api_ready ); ?>>
-					<?php echo $generated ? esc_html__( 'Audio neu generieren', 'article-tts' ) : esc_html__( 'Audio generieren', 'article-tts' ); ?>
+				<?php
+				// Disabled while something is running: a second submit would be a
+				// second rendition on the invoice for the same article.
+				$label = __( 'Audio generieren', 'article-tts' );
+				if ( '' !== $job_error && ! $generated ) {
+					$label = __( 'Erneut vertonen', 'article-tts' );
+				} elseif ( $generated ) {
+					$label = __( 'Audio neu generieren', 'article-tts' );
+				}
+				?>
+				<button type="button" class="button button-primary" id="article-tts-generate" <?php disabled( ! $api_ready || $running || $unsaved ); ?>>
+					<?php echo esc_html( $label ); ?>
 				</button>
 				<?php if ( $generated ) : ?>
 					<button type="button" class="button" id="article-tts-delete"><?php esc_html_e( 'Löschen', 'article-tts' ); ?></button>
+				<?php endif; ?>
+				<?php if ( $api_ready && ! $unsaved ) : ?>
+					<?php
+					// Fragt den Posteingang bei Heise I/O sofort ab, statt auf den
+					// Cron zu warten. Ohne gespeicherten Beitrag gibt es keine
+					// Adresse, die eine Zustellung treffen könnte.
+					?>
+					<button type="button" class="button" id="article-tts-fetch">
+						<?php esc_html_e( 'Jetzt von Heise I/O holen', 'article-tts' ); ?>
+					</button>
 				<?php endif; ?>
 			</p>
 			<p class="article-tts-feedback" aria-live="polite"></p>

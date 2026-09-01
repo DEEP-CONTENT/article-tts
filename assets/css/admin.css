@@ -22,9 +22,34 @@
 	margin: 0 0 10px;
 }
 
+/* Sieht aus wie eine Warnung, traegt aber mit Absicht eine eigene Klasse:
+   admin.js entfernt nach einer gelungenen Vertonung jedes .article-tts-warning
+   aus dem Kasten. Ein nicht ladbarer Katalog ist davon aber unberuehrt und
+   muss stehen bleiben. */
+.article-tts-metabox .article-tts-catalog-note {
+	background: #fff3cd;
+	border-left: 3px solid #f0b849;
+	padding: 8px 10px;
+	margin: 0 0 10px;
+}
+
 .article-tts-metabox .article-tts-stale {
 	color: #b65414;
 	font-weight: 600;
+}
+
+/* A rendition in progress. Calm on purpose: nothing is wrong, it just takes a
+   while, and an alarm colour would invite a second click. */
+.article-tts-metabox .article-tts-running {
+	background: #f0f6fc;
+	border-left: 3px solid #72aee6;
+	padding: 8px 10px;
+	margin: 0 0 10px;
+}
+
+/* Audio from the previous integration — a fact, not a problem. */
+.article-tts-metabox .article-tts-note {
+	color: #646970;
 }
 
 .article-tts-metabox .article-tts-actions {

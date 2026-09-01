@@ -1,0 +1,55 @@
+# Der Testlauf und eine Syntaxprüfung, auf beiden Enden der unterstützten
+# PHP-Spanne.
+#
+# WARUM 7.4 UND NICHT NUR EIN AKTUELLES PHP. Dieses Plugin wird auf fremden
+# WordPress-Installationen ausgeführt, und `readme.txt` verspricht „Requires PHP:
+# 7.4". Wer hier nur auf 8.3 prüft, merkt erst beim Kunden, dass eine bequeme
+# neuere Schreibweise hineingerutscht ist — und dort äußert sich das als weißer
+# Bildschirm, nicht als Fehlermeldung.
+#
+# WARUM AUCH `php -l`. Das Repo hat keinen Linter. Ein Syntaxfehler in einer
+# Datei, die nur auf einem selten begangenen Pfad geladen wird, fiele sonst
+# niemandem auf, bis jemand genau dorthin gerät.
+#
+# Der Testlauf selbst braucht nichts installiert: keine Abhängigkeit, kein
+# WordPress, keine Datenbank. Das ist der Grund, warum er hier so kurz aussehen
+# darf — siehe den Kopf von `tests/run.php`.
+
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    strategy:
+      # Beide Enden laufen zu Ende, auch wenn eines fällt: welche Version bricht,
+      # ist die halbe Diagnose.
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.3']
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+
+      # `vendor/` ist mitgeliefert, aber fremd — ein Syntaxfehler darin wäre
+      # nicht unserer, und ein roter Lauf über fremden Code sagt nichts.
+      - name: Syntax
+        run: |
+          find . -name '*.php' -not -path './vendor/*' -print0 \
+            | xargs -0 -n1 -P4 php -l
+
+      - name: Tests
+        run: php tests/run.php
